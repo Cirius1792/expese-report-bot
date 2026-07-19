@@ -25,7 +25,7 @@
 
 ## Evidence mapping
 
-- **Task 1 (current):** Behave — `features/authorization.feature` proves the authorized and unauthorized user stories via acceptance tests. The production code implements `UnauthorizedAttemptAudit.record()` and `make_authorization_guard()` only. Whitelist loading, configuration env-var/file edge cases, guard registration into the PTB dispatcher, and full startup wiring are **not yet implemented** — these are covered by later tasks.
-- **Task 2+ (future):** Pytest — `tests/adapters/inbound/test_authorization.py` will prove loader, audit writer, guard, and registration edge cases. Does not exist yet.
-- **Task 3+ (future):** Pytest — `tests/adapters/inbound/test_logging_config.py` proves general logging startup wiring in `main()` (LOG_LEVEL env var handling, logging-before-adapter order). Authorization-specific startup wiring (empty whitelist warnings, malformed JSON failures, audit path creation failures) is **not yet covered** — these will be added in later tasks.
+- Behave: `features/authorization.feature` proves the authorized and unauthorized user stories via acceptance tests.
+- Pytest: `tests/adapters/inbound/test_authorization.py` proves whitelist loading, missing/unreadable config handling, malformed JSON failure, invalid schema handling, audit writer formatting, audit writability checks, guard behavior, and `group=-1` registration.
+- Pytest: `tests/adapters/inbound/test_logging_config.py` proves startup wiring order: logging is configured first, authorized users are loaded, the unauthorized audit is verified writable, the authorization guard is registered, and normal handlers are registered afterward.
 - Full verification: `uvx ruff format`, `uvx ruff check`, `uvx ty check`, `uv run pytest`, and `uv run behave`.
