@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Tests
+tests/
+features/
+
+# Docs
+docs/
+
+# Git
+.git/
+.gitignore
+
+# Environment
+.env
+.env.local
+.env.deploy
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project
+handoff.md
+skills-lock.json
+pretty.output
+
+# CI
+.github/

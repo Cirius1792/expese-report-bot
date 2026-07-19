@@ -37,6 +37,8 @@ class CorrectionStore:
     This is transient session state and is NOT persisted to any database.
     """
 
+    # TODO: if we ever need to deploy multiple instances of the bot, we will need to persist this
+
     def __init__(self) -> None:
         self._store: dict[int, PendingCorrection] = {}
 

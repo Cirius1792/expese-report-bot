@@ -1,0 +1,21 @@
+name: expense-report-bot
+
+services:
+  bot:
+    build: .
+    image: expense-report-bot:latest
+    container_name: expense-report-bot
+    restart: unless-stopped
+
+    # Run as host UID:GID so bind-mounted DB is owned by the host user
+    user: "${UID:-1000}:${GID:-1000}"
+
+    # Environment variables forwarded from the env file
+    env_file:
+      - .env.deploy
+
+    # Bind mount: database persists on the host at ./data
+    volumes:
+      - ./data:/data
+
+    # No ports needed — the bot polls Telegram, doesn't listen for connections

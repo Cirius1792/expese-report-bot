@@ -69,6 +69,30 @@ uv run expense-extract --user-id 123 --db test.db extract-from-image receipt.jpg
 uv run expense-extract extract-from-text "lunch 15.50 eur at Mario's Pizzeria on 2026-07-10"
 ```
 
+## Docker Deployment
+
+```bash
+# Build and start the bot
+cp .env.deploy.example .env.deploy
+# Edit .env.deploy with your real credentials
+
+docker compose --env-file .env.deploy up -d
+```
+
+The container:
+- Runs as the `UID:GID` specified in `.env.deploy` so the bind-mounted database is owned by the host user
+- Persists the SQLite database to `./data/expenses.db` on the host
+- Auto-restarts unless explicitly stopped (`restart: unless-stopped`)
+
+**Managing the bot:**
+
+```bash
+docker compose --env-file .env.deploy logs -f   # follow logs
+docker compose --env-file .env.deploy down       # stop and remove
+docker compose --env-file .env.deploy up -d      # restart
+docker compose --env-file .env.deploy build      # rebuild after code changes
+```
+
 ## Running Tests
 
 ```bash
