@@ -11,6 +11,8 @@ Follows sociable unit test principles:
 from __future__ import annotations
 
 import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -82,6 +84,16 @@ mock_telegram.ext = mock_ext
 mock_ext.Application = _MagicMock()
 mock_ext.CommandHandler = _MagicMock()
 mock_ext.MessageHandler = _MagicMock()
+mock_ext.TypeHandler = _MagicMock()
+
+
+class _MockApplicationHandlerStopError(Exception):
+    """Mock PTB ApplicationHandlerStop exception for Behave tests."""
+
+    pass
+
+
+mock_ext.ApplicationHandlerStop = _MockApplicationHandlerStopError
 mock_filters = _MagicMock()
 mock_filters.PHOTO = _MagicMock()
 mock_filters.TEXT = _MagicMock()
@@ -120,6 +132,10 @@ def before_scenario(context: "behave.runner.Context", scenario: "behave.model.Sc
     context.current_date = date(2026, 7, 15)
     context.current_datetime = datetime(2026, 7, 15, 12, 0, 0)
 
+    # Temporary directory for authorization audit log
+    context.authorization_tempdir = TemporaryDirectory()
+    context.unauthorized_log_path = Path(context.authorization_tempdir.name) / "unauthorized.log"
+
     # Telegram mock helpers (used by telegram step definitions)
     context.telegram_updates: list[MagicMock] = []
     context.telegram_replies: list[str] = []
@@ -136,3 +152,7 @@ def after_scenario(context: "behave.runner.Context", scenario: "behave.model.Sce
     # Close SQLite connection
     if hasattr(context, "repository"):
         context.repository._conn.close()
+
+    # Clean up authorization temp directory
+    if hasattr(context, "authorization_tempdir"):
+        context.authorization_tempdir.cleanup()

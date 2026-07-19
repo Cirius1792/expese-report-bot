@@ -123,6 +123,19 @@ mock_ext.CommandHandler = mock_command_handler_cls
 mock_message_handler_cls = MagicMock()
 mock_ext.MessageHandler = mock_message_handler_cls
 
+# telegram.ext.TypeHandler
+mock_type_handler_cls = MagicMock()
+mock_ext.TypeHandler = mock_type_handler_cls
+
+
+class _MockApplicationHandlerStopError(Exception):
+    """Mock PTB ApplicationHandlerStop exception for tests."""
+
+    pass
+
+
+mock_ext.ApplicationHandlerStop = _MockApplicationHandlerStopError
+
 # telegram.ext.filters
 mock_filters = MagicMock()
 mock_filters.PHOTO = MagicMock()
