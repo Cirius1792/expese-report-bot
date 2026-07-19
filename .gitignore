@@ -25,6 +25,7 @@ Thumbs.db
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.worktrees/
 
 # Docker runtime
 .env.deploy
