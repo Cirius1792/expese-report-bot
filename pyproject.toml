@@ -8,6 +8,8 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "dspy-ai>=2.6",
+    "openai>=1.0",
+    "pillow>=11",
     "python-telegram-bot[job-queue]>=21.11",
 ]
 
@@ -30,8 +32,17 @@ target-version = "py312"
 select = ["E", "F", "I", "N", "W"]
 
 [tool.ty]
-pythonVersion = "3.12"
-paths = ["src"]
+
+[tool.ty.environment]
+python-version = "3.12"
+root = ["src", "."]
+
+[tool.ty.analysis]
+replace-imports-with-any = ["PIL.**", "behave"]
+
+[[tool.ty.overrides]]
+include = ["features/**"]
+rules = { call-non-callable = "ignore", invalid-type-form = "ignore", possibly-missing-submodule = "ignore" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -42,7 +53,8 @@ expense-bot = "expense_report.adapters.inbound.main:main"
 
 [dependency-groups]
 dev = [
+    "behave>=1.3",
     "pytest>=8",
     "ruff>=0.9",
-    "ty>=0.1",
+    "ty>=0.0.1",
 ]

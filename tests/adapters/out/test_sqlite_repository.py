@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
 import pytest
 
@@ -66,16 +70,12 @@ class TestSave:
 class TestGetById:
     """Retrieve by id."""
 
-    def test_get_by_id_returns_none_for_unknown(
-        self, repo: "SqliteExpenseRepository"
-    ) -> None:
+    def test_get_by_id_returns_none_for_unknown(self, repo: "SqliteExpenseRepository") -> None:
         """Unknown id returns None."""
         result = repo.get_by_id("nonexistent-id")
         assert result is None
 
-    def test_get_by_id_returns_saved_expense(
-        self, repo: "SqliteExpenseRepository"
-    ) -> None:
+    def test_get_by_id_returns_saved_expense(self, repo: "SqliteExpenseRepository") -> None:
         """Saved expense can be retrieved by id with correct fields."""
         dt = datetime(2026, 7, 3, 9, 30, 0)
         expense = Expense(
@@ -91,7 +91,8 @@ class TestGetById:
         )
 
         saved = repo.save(expense)
-        retrieved = repo.get_by_id(saved.id)  # type: ignore[arg-type]
+        assert saved.id is not None
+        retrieved = repo.get_by_id(saved.id)
 
         assert retrieved is not None
         assert retrieved.id == saved.id
@@ -166,9 +167,7 @@ class TestGetByUserAndMonth:
         assert len(results) == 1
         assert results[0].date.year == 2026
 
-    def test_returns_ordered_by_created_at_desc(
-        self, repo: "SqliteExpenseRepository"
-    ) -> None:
+    def test_returns_ordered_by_created_at_desc(self, repo: "SqliteExpenseRepository") -> None:
         """Results are ordered newest first by created_at."""
         self._create_expense(
             repo,
@@ -195,9 +194,7 @@ class TestGetByUserAndMonth:
         assert results[0].created_at > results[1].created_at
         assert results[1].created_at > results[2].created_at
 
-    def test_returns_empty_list_for_no_results(
-        self, repo: "SqliteExpenseRepository"
-    ) -> None:
+    def test_returns_empty_list_for_no_results(self, repo: "SqliteExpenseRepository") -> None:
         """No matching expenses returns an empty list."""
         results = repo.get_by_user_and_month(user_id=999, year=2026, month=1)
         assert results == []
@@ -221,7 +218,8 @@ class TestSerialization:
         )
 
         saved = repo.save(expense)
-        retrieved = repo.get_by_id(saved.id)  # type: ignore[arg-type]
+        assert saved.id is not None
+        retrieved = repo.get_by_id(saved.id)
 
         assert retrieved is not None
         assert retrieved.amount == Decimal("123.45")
@@ -243,14 +241,13 @@ class TestSerialization:
         )
 
         saved = repo.save(expense)
-        retrieved = repo.get_by_id(saved.id)  # type: ignore[arg-type]
+        assert saved.id is not None
+        retrieved = repo.get_by_id(saved.id)
 
         assert retrieved is not None
         assert retrieved.category is None
 
-    def test_receipt_photo_id_none_round_trip(
-        self, repo: "SqliteExpenseRepository"
-    ) -> None:
+    def test_receipt_photo_id_none_round_trip(self, repo: "SqliteExpenseRepository") -> None:
         """receipt_photo_id=None survives save/retrieve."""
         expense = Expense(
             id=None,
@@ -265,7 +262,8 @@ class TestSerialization:
         )
 
         saved = repo.save(expense)
-        retrieved = repo.get_by_id(saved.id)  # type: ignore[arg-type]
+        assert saved.id is not None
+        retrieved = repo.get_by_id(saved.id)
 
         assert retrieved is not None
         assert retrieved.receipt_photo_id is None

@@ -70,7 +70,7 @@ class TestExpense:
             created_at=dt,
         )
         with pytest.raises(AttributeError):
-            exp.amount = Decimal("20.00")  # type: ignore[misc]
+            exp.amount = Decimal("20.00")  # type: ignore[misc]  # ty: ignore[invalid-assignment]
 
 
 class TestExtractionResult:

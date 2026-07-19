@@ -2,6 +2,10 @@
 
 Uses mocked telegram module (set up in tests/conftest.py) and
 AsyncMock for async PTB API methods.
+
+Follows sociable unit test principles:
+- System boundaries mocked: Telegram API (PTB), LLM (extraction adapter mock), DB (repository mock)
+- Internal collaborators are real: CorrectionStore (domain class)
 """
 
 from __future__ import annotations
@@ -9,12 +13,11 @@ from __future__ import annotations
 import asyncio
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from expense_report.domain.correction_state import PendingCorrection
+from expense_report.domain.correction_state import CorrectionStore, PendingCorrection
 from expense_report.domain.models import Expense, ExtractionResult
 
 
@@ -57,8 +60,8 @@ class TestStartHandler:
     def test_sends_welcome_message(self) -> None:
         """Handler replies with the welcome message."""
         from expense_report.adapters.inbound.telegram_bot import (
-            _handle_start,
             WELCOME_MESSAGE,
+            _handle_start,
         )
 
         update = _make_update()
@@ -66,9 +69,7 @@ class TestStartHandler:
 
         asyncio.run(_handle_start(update, context))
 
-        update.effective_message.reply_text.assert_awaited_once_with(
-            WELCOME_MESSAGE
-        )
+        update.effective_message.reply_text.assert_awaited_once_with(WELCOME_MESSAGE)
 
     def test_no_message_does_nothing(self) -> None:
         """When effective_message is None, handler returns silently."""
@@ -96,7 +97,7 @@ class TestPhotoHandler:
             category="food",
         )
         repo = MagicMock()
-        store = MagicMock()
+        store = CorrectionStore()  # real domain object
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_photo_handler,
@@ -106,9 +107,7 @@ class TestPhotoHandler:
         update = _make_update(photo_file_id="photo-abc-123")
         context = _make_context(image_bytes=b"receipt-image")
 
-        with patch(
-            "expense_report.adapters.inbound.telegram_bot.datetime"
-        ) as mock_dt:
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
             asyncio.run(handler(update, context))
 
@@ -121,6 +120,9 @@ class TestPhotoHandler:
         assert saved_expense.merchant == "Supermarket"
         assert saved_expense.receipt_photo_id == "photo-abc-123"
         assert saved_expense.user_id == 12345
+
+        # Verify no correction was stored (complete extraction)
+        assert store.get(12345) is None
 
         reply_text = update.effective_message.reply_text.call_args[0][0]
         assert "✅ Saved." in reply_text
@@ -139,7 +141,7 @@ class TestPhotoHandler:
             category=None,
         )
         repo = MagicMock()
-        store = MagicMock()
+        store = CorrectionStore()  # real domain object
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_photo_handler,
@@ -153,6 +155,13 @@ class TestPhotoHandler:
 
         adapter.extract.assert_called_once_with(b"blurry-receipt", "image")
         repo.save.assert_not_called()
+
+        # Verify correction was stored (real store, not mock assertion)
+        pending = store.get(12345)
+        assert pending is not None
+        assert pending.user_id == 12345
+        assert pending.original_result.amount == Decimal("15.00")
+        assert pending.attempt_count == 1
 
         reply_text = update.effective_message.reply_text.call_args[0][0]
         assert "partial information" in reply_text
@@ -176,8 +185,7 @@ class TestTextHandler:
             category="food",
         )
         repo = MagicMock()
-        store = MagicMock()
-        store.get.return_value = None  # No pending correction
+        store = CorrectionStore()  # real domain object, no pending correction
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_text_handler,
@@ -187,9 +195,7 @@ class TestTextHandler:
         update = _make_update(text="coffee 12.50 usd")
         context = MagicMock()
 
-        with patch(
-            "expense_report.adapters.inbound.telegram_bot.datetime"
-        ) as mock_dt:
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 7, 20, 14, 0, 0)
             asyncio.run(handler(update, context))
 
@@ -200,6 +206,9 @@ class TestTextHandler:
         assert saved_expense.amount == Decimal("12.50")
         assert saved_expense.merchant == "Coffee Shop"
         assert saved_expense.receipt_photo_id is None
+
+        # Verify no correction was stored for this user
+        assert store.get(12345) is None
 
         reply_text = update.effective_message.reply_text.call_args[0][0]
         assert "✅ Saved." in reply_text
@@ -216,8 +225,7 @@ class TestTextHandler:
             category=None,
         )
         repo = MagicMock()
-        store = MagicMock()
-        store.get.return_value = None  # No pending correction
+        store = CorrectionStore()  # real domain object, no pending correction
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_text_handler,
@@ -230,6 +238,11 @@ class TestTextHandler:
         asyncio.run(handler(update, context))
 
         repo.save.assert_not_called()
+
+        # Verify correction was stored
+        pending = store.get(12345)
+        assert pending is not None
+        assert pending.attempt_count == 1
 
         reply_text = update.effective_message.reply_text.call_args[0][0]
         assert "partial information" in reply_text
@@ -278,9 +291,7 @@ class TestReportHandler:
         update = _make_update()
         context = MagicMock()
 
-        with patch(
-            "expense_report.adapters.inbound.telegram_bot.datetime"
-        ) as mock_dt:
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
             asyncio.run(handler(update, context))
 
@@ -314,9 +325,7 @@ class TestReportHandler:
         update = _make_update()
         context = MagicMock()
 
-        with patch(
-            "expense_report.adapters.inbound.telegram_bot.datetime"
-        ) as mock_dt:
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
             asyncio.run(handler(update, context))
 
@@ -339,9 +348,7 @@ class TestReportHandler:
         update = _make_update(user_id=99999)
         context = MagicMock()
 
-        with patch(
-            "expense_report.adapters.inbound.telegram_bot.datetime"
-        ) as mock_dt:
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
             asyncio.run(handler(update, context))
 
@@ -365,7 +372,7 @@ class TestRegisterHandlers:
         app = MagicMock()
         adapter = MagicMock()
         repo = MagicMock()
-        store = MagicMock()
+        store = CorrectionStore()  # real store
 
         register_handlers(app, adapter, repo, store)
 
@@ -383,7 +390,11 @@ class TestMissingFields:
         from expense_report.adapters.inbound.telegram_bot import _missing_fields
 
         result = ExtractionResult(
-            amount=None, currency=None, merchant=None, date=None, category=None,
+            amount=None,
+            currency=None,
+            merchant=None,
+            date=None,
+            category=None,
         )
         missing = _missing_fields(result)
         assert missing == ["amount", "currency", "merchant", "date"]
@@ -418,7 +429,11 @@ class TestMissingFields:
 
 
 class TestCorrectionFlow:
-    """Tests for correction flow (partial extraction → user corrects → refine)."""
+    """Tests for correction flow (partial extraction → user corrects → refine).
+
+    Uses real CorrectionStore — tests verify state transitions through the
+    domain object, not mock assertions on the store.
+    """
 
     def test_text_handler_with_pending_correction_refine_complete_saves_and_removes(
         self,
@@ -426,8 +441,9 @@ class TestCorrectionFlow:
         """Text pending correction: refine completes → save, remove from store."""
         adapter = MagicMock()
         repo = MagicMock()
-        store = MagicMock()
+        store = CorrectionStore()  # real store
 
+        # Setup: pre-populate with a pending correction
         original = ExtractionResult(
             amount=Decimal("15.00"),
             currency=None,
@@ -435,8 +451,8 @@ class TestCorrectionFlow:
             date=None,
             category=None,
         )
-        store.get.return_value = PendingCorrection(
-            user_id=12345, original_result=original, attempt_count=1
+        store.set(
+            12345, PendingCorrection(user_id=12345, original_result=original, attempt_count=1)
         )
 
         refined = ExtractionResult(
@@ -456,9 +472,7 @@ class TestCorrectionFlow:
         update = _make_update(text="Cafe EUR 15")
         context = MagicMock()
 
-        with patch(
-            "expense_report.adapters.inbound.telegram_bot.datetime"
-        ) as mock_dt:
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 7, 20, 14, 0, 0)
             asyncio.run(handler(update, context))
 
@@ -469,8 +483,8 @@ class TestCorrectionFlow:
         saved: Expense = repo.save.call_args[0][0]
         assert saved.amount == Decimal("15.00")
         assert saved.merchant == "Cafe"
-        # Verify store was cleared
-        store.remove.assert_called_once_with(12345)
+        # Verify store was cleared (real store check)
+        assert store.get(12345) is None
         # Verify confirmation message
         reply_text = update.effective_message.reply_text.call_args[0][0]
         assert "Updated and saved" in reply_text
@@ -481,7 +495,7 @@ class TestCorrectionFlow:
         """Text pending correction: refine still incomplete → ask again, increment attempt."""
         adapter = MagicMock()
         repo = MagicMock()
-        store = MagicMock()
+        store = CorrectionStore()  # real store
 
         original = ExtractionResult(
             amount=Decimal("15.00"),
@@ -490,11 +504,11 @@ class TestCorrectionFlow:
             date=None,
             category=None,
         )
-        store.get.return_value = PendingCorrection(
-            user_id=12345, original_result=original, attempt_count=1
+        store.set(
+            12345, PendingCorrection(user_id=12345, original_result=original, attempt_count=1)
         )
 
-        # Refine result still missing currency, merchant, date
+        # Refine result still missing currency, date
         refined = ExtractionResult(
             amount=Decimal("15.00"),
             currency=None,
@@ -518,12 +532,11 @@ class TestCorrectionFlow:
         adapter.refine.assert_called_once_with(original, "Cafe")
         # Verify not saved
         repo.save.assert_not_called()
-        # Verify store was updated with incremented attempt
-        store.set.assert_called_once()
-        updated_correction: PendingCorrection = store.set.call_args[0][1]
-        assert updated_correction.attempt_count == 2
-        # Verify store was NOT removed
-        store.remove.assert_not_called()
+        # Verify store was updated with incremented attempt (real store check)
+        pending = store.get(12345)
+        assert pending is not None
+        assert pending.attempt_count == 2
+        assert pending.original_result.amount == Decimal("15.00")
         # Verify reply asks for missing fields again
         reply_text = update.effective_message.reply_text.call_args[0][0]
         assert "partial" in reply_text or "missing" in reply_text
@@ -536,7 +549,7 @@ class TestCorrectionFlow:
         """Text pending correction: maxed out (3rd attempt) → remove, send failure."""
         adapter = MagicMock()
         repo = MagicMock()
-        store = MagicMock()
+        store = CorrectionStore()  # real store
 
         original = ExtractionResult(
             amount=Decimal("15.00"),
@@ -545,8 +558,8 @@ class TestCorrectionFlow:
             date=None,
             category=None,
         )
-        store.get.return_value = PendingCorrection(
-            user_id=12345, original_result=original, attempt_count=3
+        store.set(
+            12345, PendingCorrection(user_id=12345, original_result=original, attempt_count=3)
         )
 
         # Even a perfect refine result — but 3 attempts already exhausted
@@ -573,8 +586,8 @@ class TestCorrectionFlow:
         adapter.refine.assert_not_called()
         # Verify not saved
         repo.save.assert_not_called()
-        # Verify store was removed
-        store.remove.assert_called_once_with(12345)
+        # Verify store was removed (real store check)
+        assert store.get(12345) is None
         # Verify failure message
         reply_text = update.effective_message.reply_text.call_args[0][0]
         assert "3 attempts" in reply_text or "could not complete" in reply_text
@@ -585,7 +598,7 @@ class TestCorrectionFlow:
         """Photo partial extraction stores pending correction before asking."""
         adapter = MagicMock()
         repo = MagicMock()
-        store = MagicMock()
+        store = CorrectionStore()  # real store
 
         partial = ExtractionResult(
             amount=Decimal("25.00"),
@@ -606,12 +619,12 @@ class TestCorrectionFlow:
 
         asyncio.run(handler(update, context))
 
-        # Verify correction was stored
-        store.set.assert_called_once()
-        stored_correction: PendingCorrection = store.set.call_args[0][1]
-        assert stored_correction.original_result.amount == Decimal("25.00")
-        assert stored_correction.user_id == 12345
-        assert stored_correction.attempt_count == 1
+        # Verify correction was stored (real store check)
+        pending = store.get(12345)
+        assert pending is not None
+        assert pending.original_result.amount == Decimal("25.00")
+        assert pending.user_id == 12345
+        assert pending.attempt_count == 1
         # Verify repo was NOT saved
         repo.save.assert_not_called()
         # Verify missing fields message was sent
@@ -624,7 +637,7 @@ class TestCorrectionFlow:
         """Photo complete extraction does NOT create pending correction."""
         adapter = MagicMock()
         repo = MagicMock()
-        store = MagicMock()
+        store = CorrectionStore()  # real store
 
         complete = ExtractionResult(
             amount=Decimal("30.00"),
@@ -643,15 +656,12 @@ class TestCorrectionFlow:
         update = _make_update(photo_file_id="photo-101112")
         context = _make_context(image_bytes=b"receipt-good")
 
-        with patch(
-            "expense_report.adapters.inbound.telegram_bot.datetime"
-        ) as mock_dt:
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 7, 22, 9, 0, 0)
             asyncio.run(handler(update, context))
 
-        # Verify no correction was stored
-        store.set.assert_not_called()
-        store.remove.assert_not_called()
+        # Verify no correction was stored (real store check)
+        assert store.get(12345) is None
         # Verify repo was saved
         repo.save.assert_called_once()
         saved: Expense = repo.save.call_args[0][0]
@@ -671,9 +681,7 @@ class TestCorrectionFlow:
             category="food",
         )
         repo = MagicMock()
-        store = MagicMock()
-        # No pending correction for this user
-        store.get.return_value = None
+        store = CorrectionStore()  # real store, empty (no pending correction)
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_text_handler,
@@ -683,18 +691,15 @@ class TestCorrectionFlow:
         update = _make_update(text="coffee 12.50 usd")
         context = MagicMock()
 
-        with patch(
-            "expense_report.adapters.inbound.telegram_bot.datetime"
-        ) as mock_dt:
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 7, 20, 14, 0, 0)
             asyncio.run(handler(update, context))
 
         # Verify normal extraction flow
         adapter.extract.assert_called_once_with("coffee 12.50 usd", "text")
         repo.save.assert_called_once()
-        # Verify store was never touched
-        store.set.assert_not_called()
-        store.remove.assert_not_called()
+        # Verify store was never touched (real store check)
+        assert store.get(12345) is None
         # Verify confirmation
         reply_text = update.effective_message.reply_text.call_args[0][0]
         assert "✅ Saved." in reply_text

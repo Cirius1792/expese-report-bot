@@ -204,8 +204,10 @@ class TestExtractImage:
         # Mock PIL image operations
         mock_img = MagicMock()
         mock_image_open.return_value = mock_img
+
         def fake_save(buf, format, quality):
             buf.write(b"fake-jpeg-data")
+
         mock_img.save.side_effect = fake_save
 
         # Mock OpenAI client response
@@ -213,7 +215,11 @@ class TestExtractImage:
         mock_openai_cls.return_value = mock_client
         mock_response = MagicMock()
         mock_response.choices = [
-            MagicMock(message=MagicMock(content='{"amount":"15.00","currency":"EUR","merchant":"Cafe","date":"2026-07-10","category":"food"}'))
+            MagicMock(
+                message=MagicMock(
+                    content='{"amount":"15.00","currency":"EUR","merchant":"Cafe","date":"2026-07-10","category":"food"}'
+                )
+            )
         ]
         mock_client.chat.completions.create.return_value = mock_response
 
@@ -343,9 +349,7 @@ class TestRetry:
         mock_lm = MagicMock()
         mock_lm_cls.return_value = mock_lm
 
-        mock_predictor = MagicMock(
-            side_effect=RuntimeError("LLM consistently failing")
-        )
+        mock_predictor = MagicMock(side_effect=RuntimeError("LLM consistently failing"))
 
         from expense_report.adapters.out.dspy_extraction import (
             DspyExtractionAdapter,
@@ -908,9 +912,7 @@ class TestRefine:
         """Refine raises after all retry attempts exhausted."""
         mock_lm = MagicMock()
         mock_lm_cls.return_value = mock_lm
-        mock_predictor = MagicMock(
-            side_effect=RuntimeError("LLM consistently failing")
-        )
+        mock_predictor = MagicMock(side_effect=RuntimeError("LLM consistently failing"))
 
         from expense_report.adapters.out.dspy_extraction import (
             DspyExtractionAdapter,
@@ -935,4 +937,3 @@ class TestRefine:
         assert mock_predictor.call_count == 3
         assert mock_sleep.call_args_list[0][0][0] == 1
         assert mock_sleep.call_args_list[1][0][0] == 2
-

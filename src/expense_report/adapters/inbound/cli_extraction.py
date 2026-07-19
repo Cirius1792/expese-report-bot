@@ -11,7 +11,6 @@ and SqliteExpenseRepository for persistence.
 from __future__ import annotations
 
 import argparse
-import sys
 from datetime import datetime
 
 from expense_report.domain.models import Expense
@@ -44,9 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     img_parser.add_argument("image_path", type=str, help="Path to the image file")
 
-    txt_parser = subparsers.add_parser(
-        "extract-from-text", help="Extract expense from free text"
-    )
+    txt_parser = subparsers.add_parser("extract-from-text", help="Extract expense from free text")
     txt_parser.add_argument("text", type=str, help="Free-text expense description")
 
     return parser
@@ -85,17 +82,23 @@ def main() -> None:
     print(f"  Category: {result.category}")
     print(f"  Complete: {result.is_complete}")
 
-    expense = Expense(
-        id=None,
-        amount=result.amount,
-        currency=result.currency,
-        merchant=result.merchant,
-        date=result.date,
-        category=result.category,
-        user_id=args.user_id,
-        receipt_photo_id=None,
-        created_at=datetime.now(),
-    )
+    if result.is_complete:
+        assert result.amount is not None and result.currency is not None
+        assert result.merchant is not None and result.date is not None
 
-    saved = repo.save(expense)
-    print(f"\nSaved expense: {saved}")
+        expense = Expense(
+            id=None,
+            amount=result.amount,
+            currency=result.currency,
+            merchant=result.merchant,
+            date=result.date,
+            category=result.category,
+            user_id=args.user_id,
+            receipt_photo_id=None,
+            created_at=datetime.now(),
+        )
+
+        saved = repo.save(expense)
+        print(f"\nSaved expense: {saved}")
+    else:
+        print("\nExtraction incomplete — not saved.")

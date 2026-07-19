@@ -41,9 +41,7 @@ def register_handlers(
 ) -> None:
     """Register all bot command and message handlers."""
     app.add_handler(CommandHandler("start", _handle_start))
-    app.add_handler(
-        CommandHandler("report", _make_report_handler(repository))
-    )
+    app.add_handler(CommandHandler("report", _make_report_handler(repository)))
     app.add_handler(
         MessageHandler(
             filters.PHOTO,
@@ -58,9 +56,7 @@ def register_handlers(
     )
 
 
-async def _handle_start(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def _handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command — send welcome message."""
     if update.effective_message is None:
         return
@@ -71,9 +67,8 @@ def _make_report_handler(
     repository: ExpenseRepositoryPort,
 ):
     """Factory: create a /report handler bound to the given repository."""
-    async def handler(
-        update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+
+    async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.effective_message is None or update.effective_user is None:
             return
 
@@ -96,9 +91,7 @@ def _make_report_handler(
         bio = BytesIO(csv_string.encode("utf-8"))
         bio.name = filename
 
-        await update.effective_message.reply_document(
-            document=bio, filename=filename
-        )
+        await update.effective_message.reply_document(document=bio, filename=filename)
         await update.effective_message.reply_text(
             f"📊 Generated report with {len(expenses)} expenses."
         )
@@ -112,9 +105,8 @@ def _make_photo_handler(
     correction_store: CorrectionStore,
 ):
     """Factory: create a photo handler bound to the given adapters."""
-    async def handler(
-        update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+
+    async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.effective_message is None or update.effective_user is None:
             return
 
@@ -149,9 +141,8 @@ def _make_text_handler(
     correction_store: CorrectionStore,
 ):
     """Factory: create a text handler bound to the given adapters."""
-    async def handler(
-        update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+
+    async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.effective_message is None or update.effective_user is None:
             return
 
@@ -210,6 +201,9 @@ async def _respond_to_extraction(
     user_id = update.effective_user.id
 
     if result.is_complete:
+        assert result.amount is not None and result.currency is not None
+        assert result.merchant is not None and result.date is not None
+
         expense = Expense(
             id=None,
             amount=result.amount,
@@ -265,6 +259,9 @@ async def _handle_correction(
     refined = extraction_adapter.refine(pending.original_result, correction_text)
 
     if refined.is_complete:
+        assert refined.amount is not None and refined.currency is not None
+        assert refined.merchant is not None and refined.date is not None
+
         # Save and clear pending
         expense = Expense(
             id=None,

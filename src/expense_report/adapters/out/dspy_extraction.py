@@ -20,27 +20,16 @@ from openai import OpenAI
 from PIL import Image
 
 from expense_report.domain.models import ExtractionResult
-from expense_report.ports.extraction import ExtractionPort
 
 
 class ExpenseSignature(dspy.Signature):
     """Extract structured expense data from a free-text description."""
 
-    source: str = dspy.InputField(
-        desc="The free-text expense description (e.g., 'lunch 15 eur')"
-    )
-    amount: str = dspy.OutputField(
-        desc="The expense amount as a decimal number (e.g., 42.50)"
-    )
-    currency: str = dspy.OutputField(
-        desc="3-letter ISO 4217 currency code (e.g., EUR, USD, GBP)"
-    )
-    merchant: str = dspy.OutputField(
-        desc="The merchant or vendor name"
-    )
-    date: str = dspy.OutputField(
-        desc="The expense date in YYYY-MM-DD format"
-    )
+    source: str = dspy.InputField(desc="The free-text expense description (e.g., 'lunch 15 eur')")
+    amount: str = dspy.OutputField(desc="The expense amount as a decimal number (e.g., 42.50)")
+    currency: str = dspy.OutputField(desc="3-letter ISO 4217 currency code (e.g., EUR, USD, GBP)")
+    merchant: str = dspy.OutputField(desc="The merchant or vendor name")
+    date: str = dspy.OutputField(desc="The expense date in YYYY-MM-DD format")
     category: str | None = dspy.OutputField(
         desc="Optional expense category (e.g., food, transport, utilities)"
     )
@@ -53,18 +42,10 @@ class ExpenseImageSignature(dspy.Signature):
         desc="Base64-encoded JPEG image of the receipt",
         is_image=True,
     )
-    amount: str = dspy.OutputField(
-        desc="The expense amount as a decimal number (e.g., 42.50)"
-    )
-    currency: str = dspy.OutputField(
-        desc="3-letter ISO 4217 currency code (e.g., EUR, USD, GBP)"
-    )
-    merchant: str = dspy.OutputField(
-        desc="The merchant or vendor name"
-    )
-    date: str = dspy.OutputField(
-        desc="The expense date in YYYY-MM-DD format"
-    )
+    amount: str = dspy.OutputField(desc="The expense amount as a decimal number (e.g., 42.50)")
+    currency: str = dspy.OutputField(desc="3-letter ISO 4217 currency code (e.g., EUR, USD, GBP)")
+    merchant: str = dspy.OutputField(desc="The merchant or vendor name")
+    date: str = dspy.OutputField(desc="The expense date in YYYY-MM-DD format")
     category: str | None = dspy.OutputField(
         desc="Optional expense category (e.g., food, transport, utilities)"
     )
@@ -199,30 +180,32 @@ class DspyExtractionAdapter:
             try:
                 response = client.chat.completions.create(
                     model=os.environ["LLM_MODEL"].removeprefix("openai/"),
-                    messages=[{
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": (
-                                    "Extract structured expense data from this receipt image. "
-                                    "Return a JSON object with these fields:\n"
-                                    "- amount: decimal number (e.g., 42.50)\n"
-                                    "- currency: 3-letter ISO 4217 code (e.g., EUR, USD)\n"
-                                    "- merchant: vendor name\n"
-                                    "- date: YYYY-MM-DD format. Read every digit carefully. "
-                                    "European receipts often use DD/MM/YYYY — convert to YYYY-MM-DD.\n"
-                                    "- category: expense category (e.g., food, transport, hotel)"
-                                ),
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{image_b64}"
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": (
+                                        "Extract structured expense data from this receipt image. "
+                                        "Return a JSON object with these fields:\n"
+                                        "- amount: decimal number (e.g., 42.50)\n"
+                                        "- currency: 3-letter ISO 4217 code (e.g., EUR, USD)\n"
+                                        "- merchant: vendor name\n"
+                                        "- date: YYYY-MM-DD format. Read every digit carefully.\n"
+                                        "European receipts often use DD/MM/YYYY"
+                                        " — convert to YYYY-MM-DD.\n"
+                                        "- category: expense category"
+                                        " (e.g., food, transport, hotel)"
+                                    ),
                                 },
-                            },
-                        ],
-                    }],
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                                },
+                            ],
+                        }
+                    ],
                     max_tokens=300,
                     temperature=0.0,
                 )
@@ -239,6 +222,7 @@ class DspyExtractionAdapter:
     def _parse_direct_response(content: str) -> dict[str, str]:
         """Parse JSON from the direct API response into a dict of field values."""
         import json
+
         # Strip markdown code fences if present
         text = content.strip()
         if text.startswith("```"):

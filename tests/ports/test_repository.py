@@ -32,7 +32,8 @@ class TestExpenseRepositoryPortProtocol:
                     receipt_photo_id=expense.receipt_photo_id,
                     created_at=expense.created_at,
                 )
-                self._store[stored.id] = stored  # type: ignore[index]
+                assert stored.id is not None
+                self._store[stored.id] = stored
                 return stored
 
             def get_by_id(self, expense_id: str) -> Expense | None:
@@ -47,9 +48,7 @@ class TestExpenseRepositoryPortProtocol:
                 return [
                     e
                     for e in self._store.values()
-                    if e.user_id == user_id
-                    and e.date.year == year
-                    and e.date.month == month
+                    if e.user_id == user_id and e.date.year == year and e.date.month == month
                 ]
 
         repo = FakeRepository()
@@ -91,9 +90,7 @@ class TestExpenseRepositoryPortProtocol:
                 return [
                     e
                     for e in self._store.values()
-                    if e.user_id == user_id
-                    and e.date.year == year
-                    and e.date.month == month
+                    if e.user_id == user_id and e.date.year == year and e.date.month == month
                 ]
 
         repo = SimpleRepo()
