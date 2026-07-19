@@ -86,7 +86,15 @@ class TestConfigureLogging:
 class TestMainStartsLogging:
     """Tests that main() configures logging before adapters."""
 
-    @patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "fake:token"}, clear=True)
+    @patch.dict(
+        os.environ,
+        {
+            "TELEGRAM_BOT_TOKEN": "fake:token",
+            "EXPENSE_DB_PATH": "/tmp/expenses.db",
+            "UNAUTHORIZED_LOG_PATH": "/tmp/unauthorized.log",
+        },
+        clear=True,
+    )
     def test_logging_configured_before_adapters(self) -> None:
         """main() configures logging before creating adapters.
 
@@ -103,6 +111,19 @@ class TestMainStartsLogging:
         def configure_logging() -> str:
             call_order.append("configure_logging")
             return "INFO"
+
+        def load_authorized_users() -> frozenset[int]:
+            call_order.append("load_authorized_users")
+            return frozenset({123456789})
+
+        def build_audit(*args: object, **kwargs: object) -> MagicMock:
+            call_order.append("audit")
+            audit = MagicMock()
+            audit.verify_writable.side_effect = lambda: call_order.append("audit_verify")
+            return audit
+
+        def register_authorization_guard(*args: object, **kwargs: object) -> None:
+            call_order.append("register_authorization_guard")
 
         def build_extraction() -> MagicMock:
             call_order.append("extraction_adapter")
@@ -125,6 +146,17 @@ class TestMainStartsLogging:
 
         with (
             patch.object(main_module, "_configure_logging", side_effect=configure_logging),
+            patch.object(
+                main_module,
+                "load_authorized_user_ids_from_env",
+                side_effect=load_authorized_users,
+            ),
+            patch.object(main_module, "UnauthorizedAttemptAudit", side_effect=build_audit),
+            patch.object(
+                main_module,
+                "register_authorization_guard",
+                side_effect=register_authorization_guard,
+            ),
             patch(
                 "expense_report.adapters.inbound.main.DspyExtractionAdapter",
                 side_effect=build_extraction,
@@ -143,9 +175,13 @@ class TestMainStartsLogging:
 
         assert call_order == [
             "configure_logging",
+            "load_authorized_users",
+            "audit",
+            "audit_verify",
             "extraction_adapter",
             "repository",
             "application_builder",
+            "register_authorization_guard",
             "register_handlers",
             "run_polling",
         ]

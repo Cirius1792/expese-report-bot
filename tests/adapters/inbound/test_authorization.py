@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -13,6 +15,8 @@ from expense_report.adapters.inbound.authorization import (
     UnauthorizedAttemptAudit,
     load_authorized_user_ids,
     load_authorized_user_ids_from_env,
+    make_authorization_guard,
+    register_authorization_guard,
     resolve_unauthorized_log_path,
 )
 
@@ -142,3 +146,63 @@ def test_audit_verify_writable_raises_when_parent_is_missing(tmp_path: Path) -> 
 
     with pytest.raises(OSError):
         audit.verify_writable()
+
+
+def _make_update(user_id: int | None) -> MagicMock:
+    update = MagicMock()
+    if user_id is None:
+        update.effective_user = None
+    else:
+        update.effective_user = MagicMock()
+        update.effective_user.id = user_id
+    return update
+
+
+class TestAuthorizationGuard:
+    """Tests for make_authorization_guard and register_authorization_guard."""
+
+    def test_authorization_guard_allows_authorized_user(self, tmp_path: Path) -> None:
+        audit = UnauthorizedAttemptAudit(tmp_path / "unauthorized.log")
+        guard = make_authorization_guard({123456789}, audit)
+
+        asyncio.run(guard(_make_update(123456789), MagicMock()))
+
+        assert not audit.path.exists()
+
+    def test_authorization_guard_logs_and_stops_unauthorized_user(self, tmp_path: Path) -> None:
+        from telegram.ext import ApplicationHandlerStop
+
+        audit = UnauthorizedAttemptAudit(
+            tmp_path / "unauthorized.log",
+            clock=lambda: datetime(2026, 7, 19, 12, 0, 0, tzinfo=UTC),
+        )
+        guard = make_authorization_guard({987654321}, audit)
+
+        with pytest.raises(ApplicationHandlerStop):
+            asyncio.run(guard(_make_update(123456789), MagicMock()))
+
+        assert audit.path.read_text(encoding="utf-8") == "2026-07-19T12:00:00Z user_id=123456789\n"
+
+    def test_authorization_guard_stops_no_effective_user_without_audit_line(
+        self, tmp_path: Path
+    ) -> None:
+        from telegram.ext import ApplicationHandlerStop
+
+        audit = UnauthorizedAttemptAudit(tmp_path / "unauthorized.log")
+        guard = make_authorization_guard({123456789}, audit)
+
+        with pytest.raises(ApplicationHandlerStop):
+            asyncio.run(guard(_make_update(None), MagicMock()))
+
+        assert not audit.path.exists()
+
+    def test_register_authorization_guard_uses_type_handler_group_minus_one(
+        self, tmp_path: Path
+    ) -> None:
+        app = MagicMock()
+        audit = UnauthorizedAttemptAudit(tmp_path / "unauthorized.log")
+
+        register_authorization_guard(app, {123456789}, audit)
+
+        _, kwargs = app.add_handler.call_args
+        assert kwargs == {"group": -1}

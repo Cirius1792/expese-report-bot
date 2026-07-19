@@ -12,6 +12,13 @@ import sys
 
 from telegram.ext import Application
 
+from expense_report.adapters.inbound.authorization import (
+    UNAUTHORIZED_LOG_ENV,
+    UnauthorizedAttemptAudit,
+    load_authorized_user_ids_from_env,
+    register_authorization_guard,
+    resolve_unauthorized_log_path,
+)
 from expense_report.adapters.inbound.telegram_bot import register_handlers
 from expense_report.adapters.out.dspy_extraction import DspyExtractionAdapter
 from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
@@ -64,11 +71,25 @@ def main() -> None:
         effective_log_level,
     )
 
+    authorized_user_ids = load_authorized_user_ids_from_env()
+    unauthorized_log_path = resolve_unauthorized_log_path(
+        db_path,
+        os.environ.get(UNAUTHORIZED_LOG_ENV),
+    )
+    unauthorized_audit = UnauthorizedAttemptAudit(unauthorized_log_path)
+    unauthorized_audit.verify_writable()
+    logger.info(
+        "Telegram authorization loaded with %s authorized users; unauthorized log=%s",
+        len(authorized_user_ids),
+        unauthorized_audit.path,
+    )
+
     extraction = DspyExtractionAdapter()
     repository = SqliteExpenseRepository(db_path=db_path)
     correction_store = CorrectionStore()
 
     app = Application.builder().token(token).build()
+    register_authorization_guard(app, authorized_user_ids, unauthorized_audit)
     register_handlers(app, extraction, repository, correction_store)
     logger.info("Bot started, entering polling loop")
     app.run_polling()
