@@ -12,7 +12,7 @@ services:
 
     # Environment variables forwarded from the env file
     env_file:
-      - .env.deploy
+      - .env
 
     # Bind mount: database persists on the host at ./data
     volumes:

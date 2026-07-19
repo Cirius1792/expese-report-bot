@@ -23,11 +23,16 @@ RUN chmod -R a+rX /app
 # Create non-root user with home directory (UID/GID overridable at runtime)
 RUN groupadd -r botuser && useradd -r -m -g botuser botuser
 
+# Shared cache directory (writable by any UID — used by dspy and others)
+RUN mkdir -p /tmp/cache && chmod 1777 /tmp/cache
+
 # Data directory for SQLite database (bind-mounted at runtime)
 RUN mkdir -p /data && chmod 1777 /data
 VOLUME /data
 
 ENV EXPENSE_DB_PATH=/data/expenses.db
+ENV HOME=/tmp
+ENV XDG_CACHE_HOME=/tmp/cache
 
 USER botuser
 
