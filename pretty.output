@@ -1,0 +1,195 @@
+Feature: CLI Expense Extraction and Storage # features/cli_extraction.feature:1
+  As a developer
+  I want to extract structured expense data from receipt images and free text via CLI
+  So that I can verify the LLM extraction pipeline end-to-end without Telegram
+  Feature: CLI Expense Extraction and Storage  # features/cli_extraction.feature:1
+
+  @story-1
+  Scenario: Extract expense from receipt image via CLI                  # features/cli_extraction.feature:11
+    Given the LLM extraction service is available                       # features/steps/common_steps.py:23
+    And the expense database is empty                                   # features/steps/common_steps.py:43
+    Given a receipt image file "motorway_toll.jpg" with encoded content # features/steps/cli_steps.py:17
+    When I run the CLI command "extract-from-image" with that image     # features/steps/cli_steps.py:24
+    Then the extracted amount should be "3.80"                          # features/steps/common_steps.py:212
+    And the extracted currency should be "EUR"                          # features/steps/common_steps.py:219
+    And the extracted merchant should be "Autostrade per l'Italia"      # features/steps/common_steps.py:226
+    And the extracted date should be "2026-07-15"                       # features/steps/common_steps.py:233
+    And the extraction should be complete                               # features/steps/common_steps.py:198
+    And the expense should be saved to the database                     # features/steps/common_steps.py:249
+
+  @story-2
+  Scenario: Extract expense from free-text message via CLI                                     # features/cli_extraction.feature:22
+    Given the LLM extraction service is available                                              # features/steps/common_steps.py:23
+    And the expense database is empty                                                          # features/steps/common_steps.py:43
+    Given the user describes an expense as "lunch 15.50 eur at Mario's Pizzeria on 2026-07-10" # features/steps/cli_steps.py:119
+    When I run the CLI command "extract-from-text" with that text                              # features/steps/cli_steps.py:125
+    Then the extracted amount should be "15.50"                                                # features/steps/common_steps.py:212
+    And the extracted currency should be "EUR"                                                 # features/steps/common_steps.py:219
+    And the extracted merchant should be "Mario's Pizzeria"                                    # features/steps/common_steps.py:226
+    And the extracted date should be "2026-07-10"                                              # features/steps/common_steps.py:233
+    And the extraction should be complete                                                      # features/steps/common_steps.py:198
+    And the expense should be saved to the database                                            # features/steps/common_steps.py:249
+
+  @story-2
+  Scenario: Extract expense with optional category from text                                                              # features/cli_extraction.feature:33
+    Given the LLM extraction service is available                                                                         # features/steps/common_steps.py:23
+    And the expense database is empty                                                                                     # features/steps/common_steps.py:43
+    Given the user describes an expense as "taxi 25 usd transport"                                                        # features/steps/cli_steps.py:119
+    And the LLM will extract amount "25.00", currency "USD", merchant "Taxi", date "2026-07-15", and category "transport" # features/steps/cli_steps.py:220
+    When I run the CLI command "extract-from-text" with that text                                                         # features/steps/cli_steps.py:125
+    Then the extracted amount should be "25.00"                                                                           # features/steps/common_steps.py:212
+    And the extracted currency should be "USD"                                                                            # features/steps/common_steps.py:219
+    And the extracted category should be "transport"                                                                      # features/steps/common_steps.py:242
+    And the expense should be saved to the database                                                                       # features/steps/common_steps.py:249
+
+  Scenario: Partial extraction from ambiguous text                # features/cli_extraction.feature:42
+    Given the LLM extraction service is available                 # features/steps/common_steps.py:23
+    And the expense database is empty                             # features/steps/common_steps.py:43
+    Given the user describes an expense as "something expensive"  # features/steps/cli_steps.py:119
+    And the LLM will only extract the amount "100.00"             # features/steps/cli_steps.py:238
+    When I run the CLI command "extract-from-text" with that text # features/steps/cli_steps.py:125
+    Then the extraction should not be complete                    # features/steps/common_steps.py:205
+    And the database should still be empty                        # features/steps/common_steps.py:255
+
+Feature: Correction Loop # features/correction.feature:1
+  As a user
+  I want to correct partial or wrong extractions
+  So that my final stored expenses are accurate
+  Feature: Correction Loop  # features/correction.feature:1
+
+  @story-6
+  Scenario: Partial extraction from photo prompts for missing fields                 # features/correction.feature:12
+    Given the bot is running                                                         # features/steps/common_steps.py:51
+    And the extraction service is working                                            # features/steps/common_steps.py:31
+    And the database is empty                                                        # features/steps/common_steps.py:37
+    Given I have a valid receipt photo                                               # features/steps/telegram_steps.py:20
+    When I send a receipt photo                                                      # features/steps/telegram_steps.py:41
+    And the LLM extracts only the amount "15.00" without currency, merchant, or date # features/steps/telegram_steps.py:106
+    Then the bot should not save any expense                                         # features/steps/common_steps.py:279
+    And the bot should ask for missing fields                                        # features/steps/telegram_steps.py:244
+    And the missing fields should include "currency", "merchant", and "date"         # features/steps/telegram_steps.py:252
+    And the pending correction should be stored for my user                          # features/steps/telegram_steps.py:259
+
+  @story-7 @story-8
+  Scenario: User corrects missing fields via text                                                           # features/correction.feature:22
+    Given the bot is running                                                                                # features/steps/common_steps.py:51
+    And the extraction service is working                                                                   # features/steps/common_steps.py:31
+    And the database is empty                                                                               # features/steps/common_steps.py:37
+    Given I have a pending correction with amount "15.00" but missing currency, merchant, and date          # features/steps/correction_steps.py:22
+    When I reply with the correction text "it was EUR 15 at Ristorante Roma on 2026-07-18"                  # features/steps/correction_steps.py:112
+    And the LLM refines the extraction to be complete with merchant "Ristorante Roma" and date "2026-07-18" # features/steps/correction_steps.py:118
+    Then the bot should save the expense with all fields                                                    # features/steps/correction_steps.py:226
+    And the bot should reply with a confirmation containing "Updated and saved"                             # features/steps/common_steps.py:285
+    And the pending correction should be cleared                                                            # features/steps/correction_steps.py:237
+
+  @story-7 @story-8
+  Scenario: User corrects wrong fields from the original extraction                                     # features/correction.feature:31
+    Given the bot is running                                                                            # features/steps/common_steps.py:51
+    And the extraction service is working                                                               # features/steps/common_steps.py:31
+    And the database is empty                                                                           # features/steps/common_steps.py:37
+    Given I have a pending correction with amount "20.00", currency "USD", but wrong merchant "Unknown" # features/steps/correction_steps.py:44
+    When I reply with the correction text "the merchant was actually Best Western Hotel"                # features/steps/correction_steps.py:112
+    And the LLM refines the extraction with merchant "Best Western Hotel"                               # features/steps/correction_steps.py:134
+    Then the bot should save the expense with merchant "Best Western Hotel"                             # features/steps/correction_steps.py:243
+    And the saved expense should have amount "20.00" and currency "USD"                                 # features/steps/common_steps.py:291
+
+  Scenario: Correction still incomplete — ask again                 # features/correction.feature:38
+    Given the bot is running                                        # features/steps/common_steps.py:51
+    And the extraction service is working                           # features/steps/common_steps.py:31
+    And the database is empty                                       # features/steps/common_steps.py:37
+    Given I have a pending correction with only amount "10.00"      # features/steps/correction_steps.py:69
+    When I reply with the correction text "it was at a cafe"        # features/steps/correction_steps.py:112
+    And the LLM refines but still cannot determine currency or date # features/steps/correction_steps.py:147
+    Then the bot should not save any expense                        # features/steps/common_steps.py:279
+    And the bot should tell me which fields are still missing       # features/steps/correction_steps.py:250
+    And the correction attempt count should increase to 2           # features/steps/correction_steps.py:259
+
+  Scenario: Max correction attempts exhausted                                 # features/correction.feature:46
+    Given the bot is running                                                  # features/steps/common_steps.py:51
+    And the extraction service is working                                     # features/steps/common_steps.py:31
+    And the database is empty                                                 # features/steps/common_steps.py:37
+    Given I have a pending correction that has already been attempted 3 times # features/steps/correction_steps.py:89
+    When I reply with another correction text                                 # features/steps/correction_steps.py:202
+    Then the bot should not call the LLM again                                # features/steps/correction_steps.py:268
+    And the bot should tell me the extraction could not be completed          # features/steps/correction_steps.py:278
+    And the pending correction should be removed                              # features/steps/correction_steps.py:286
+
+Feature: Monthly Expense Report # features/report.feature:1
+  As a user
+  I want to export my expenses as CSV for the current month
+  So that I can use the data for accounting or reimbursement
+  Feature: Monthly Expense Report  # features/report.feature:1
+
+  @story-9
+  Scenario: Report returns CSV for current month with expenses       # features/report.feature:11
+    Given the bot is running                                         # features/steps/common_steps.py:51
+    And the database is empty                                        # features/steps/common_steps.py:37
+    Given I have recorded the following expenses this month:         # features/steps/report_steps.py:21
+      | amount | currency | merchant     | date       | category  |
+      | 42.50  | EUR      | Supermarket  | 2026-07-10 | groceries |
+      | 15.00  | EUR      | Cafe Central | 2026-07-12 | food      |
+      | 120.00 | USD      | Hotel Luxe   | 2026-07-14 | hotel     |
+    When I send the command "/report"                                # features/steps/telegram_steps.py:205
+    Then the bot should send a CSV file named "expenses-2026-07.csv" # features/steps/report_steps.py:83
+    And the CSV should contain 3 expense rows                        # features/steps/report_steps.py:92
+    And the CSV should contain "Supermarket"                         # features/steps/report_steps.py:137
+    And the bot should reply with "Generated report with 3 expenses" # features/steps/report_steps.py:115
+
+  @story-9
+  Scenario: Report with no expenses returns informative message       # features/report.feature:24
+    Given the bot is running                                          # features/steps/common_steps.py:51
+    And the database is empty                                         # features/steps/common_steps.py:37
+    Given I have no expenses recorded this month                      # features/steps/report_steps.py:36
+    When I send the command "/report"                                 # features/steps/telegram_steps.py:205
+    Then the bot should reply with "No expenses recorded for 2026-07" # features/steps/report_steps.py:123
+    And the bot should not send any file                              # features/steps/report_steps.py:131
+
+  @story-10
+  Scenario: Report isolates expenses by user                               # features/report.feature:31
+    Given the bot is running                                               # features/steps/common_steps.py:51
+    And the database is empty                                              # features/steps/common_steps.py:37
+    Given user 123 has recorded an expense of 50.00 EUR at "User 123 Shop" # features/steps/report_steps.py:43
+    And user 456 has recorded an expense of 30.00 EUR at "User 456 Shop"   # features/steps/report_steps.py:43
+    When user 123 requests /report                                         # features/steps/report_steps.py:61
+    Then the CSV should contain "User 123 Shop"                            # features/steps/report_steps.py:137
+    And the CSV should not contain "User 456 Shop"                         # features/steps/report_steps.py:144
+
+Feature: Telegram Bot Shell # features/telegram_bot.feature:1
+  As a user
+  I want to interact with the bot by sending photos and text
+  So that my expenses are automatically extracted and displayed
+  Feature: Telegram Bot Shell  # features/telegram_bot.feature:1
+
+  @story-3
+  Scenario: Send receipt photo with complete extraction                                                                      # features/telegram_bot.feature:12
+    Given the bot is running                                                                                                 # features/steps/common_steps.py:51
+    And the extraction service is working                                                                                    # features/steps/common_steps.py:31
+    And the database is empty                                                                                                # features/steps/common_steps.py:37
+    Given I have a valid receipt photo                                                                                       # features/steps/telegram_steps.py:20
+    When I send the photo to the bot                                                                                         # features/steps/telegram_steps.py:41
+    And the LLM extracts amount "42.50", currency "EUR", merchant "Supermarket", date "2026-07-15", and category "groceries" # features/steps/telegram_steps.py:50
+    Then the bot should reply with a confirmation containing "42.50"                                                         # features/steps/common_steps.py:285
+    And the bot should reply with a confirmation containing "Supermarket"                                                    # features/steps/common_steps.py:285
+    And the bot should reply with a confirmation containing "Saved"                                                          # features/steps/common_steps.py:285
+    And the expense should be persisted with amount 42.50 EUR                                                                # features/steps/common_steps.py:261
+
+  @story-4
+  Scenario: Send free-text expense message                                                         # features/telegram_bot.feature:22
+    Given the bot is running                                                                       # features/steps/common_steps.py:51
+    And the extraction service is working                                                          # features/steps/common_steps.py:31
+    And the database is empty                                                                      # features/steps/common_steps.py:37
+    Given I have no pending corrections                                                            # features/steps/telegram_steps.py:26
+    And the LLM extracts amount "3.50", currency "EUR", merchant "Central Cafe", date "2026-07-12" # features/steps/telegram_steps.py:180
+    When I send the message "coffee 3.50 eur at Central Cafe 2026-07-12"                           # features/steps/telegram_steps.py:145
+    Then the bot should reply with a confirmation containing "3.50"                                # features/steps/common_steps.py:285
+    And the bot should reply with a confirmation containing "Saved"                                # features/steps/common_steps.py:285
+    And the expense should be persisted with merchant "Central Cafe"                               # features/steps/common_steps.py:270
+
+  Scenario: Receive /start command                   # features/telegram_bot.feature:30
+    Given the bot is running                         # features/steps/common_steps.py:51
+    And the extraction service is working            # features/steps/common_steps.py:31
+    And the database is empty                        # features/steps/common_steps.py:37
+    When I send the command "/start"                 # features/steps/telegram_steps.py:205
+    Then the bot should reply with a welcome message # features/steps/telegram_steps.py:231
+    And the welcome message should mention "expense" # features/steps/telegram_steps.py:238
+

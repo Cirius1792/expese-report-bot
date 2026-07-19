@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "behave-skill": {
+      "source": "lambdatest/agent-skills",
+      "sourceType": "github",
+      "skillPath": "behave-skill/SKILL.md",
+      "computedHash": "df442bd974d60b6d723e9a2ef85b965f7f207e7347f56e6de7ecef7014d6238f"
+    }
+  }
+}

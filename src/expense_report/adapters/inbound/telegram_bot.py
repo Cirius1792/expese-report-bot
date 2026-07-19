@@ -6,6 +6,7 @@ Uses dependency injection for ExtractionPort and ExpenseRepositoryPort.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from io import BytesIO
 
@@ -23,6 +24,8 @@ from expense_report.domain.csv_generator import generate_csv
 from expense_report.domain.models import Expense
 from expense_report.ports.extraction import ExtractionPort
 from expense_report.ports.repository import ExpenseRepositoryPort
+
+logger = logging.getLogger(__name__)
 
 WELCOME_MESSAGE = """Welcome! I'm your expense report bot.
 
@@ -58,8 +61,10 @@ def register_handlers(
 
 async def _handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command — send welcome message."""
-    if update.effective_message is None:
+    if update.effective_message is None or update.effective_user is None:
+        logger.debug("Skipping /start update with no effective message or user")
         return
+    logger.info("User %s started the bot", update.effective_user.id)
     await update.effective_message.reply_text(WELCOME_MESSAGE)
 
 
@@ -70,6 +75,7 @@ def _make_report_handler(
 
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.effective_message is None or update.effective_user is None:
+            logger.debug("Skipping /report update with no effective message or user")
             return
 
         user_id = update.effective_user.id
@@ -77,9 +83,12 @@ def _make_report_handler(
         year = now.year
         month = now.month
 
+        logger.info("User %s requested report for %04d-%02d", user_id, year, month)
+
         expenses = repository.get_by_user_and_month(user_id, year, month)
 
         if not expenses:
+            logger.info("No expenses for user %s in %04d-%02d", user_id, year, month)
             await update.effective_message.reply_text(
                 f"No expenses recorded for {year:04d}-{month:02d}."
             )
@@ -92,6 +101,7 @@ def _make_report_handler(
         bio.name = filename
 
         await update.effective_message.reply_document(document=bio, filename=filename)
+        logger.info("Generated report with %s expenses for user %s", len(expenses), user_id)
         await update.effective_message.reply_text(
             f"📊 Generated report with {len(expenses)} expenses."
         )
@@ -108,22 +118,35 @@ def _make_photo_handler(
 
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.effective_message is None or update.effective_user is None:
+            logger.debug("Skipping photo update with no effective message or user")
             return
 
+        user_id = update.effective_user.id
         photo = update.effective_message.photo[-1]
+
+        logger.info("Photo received from user %s", user_id)
+
         file = await context.bot.get_file(photo.file_id)
         image_bytes = await file.download_as_bytearray()
 
         result = extraction_adapter.extract(bytes(image_bytes), "image")
 
         if not result.is_complete:
+            missing = _missing_fields(result)
+            logger.info(
+                "Partial extraction for user %s photo: missing %s",
+                user_id,
+                ", ".join(missing),
+            )
             correction_store.set(
-                update.effective_user.id,
+                user_id,
                 PendingCorrection(
-                    user_id=update.effective_user.id,
+                    user_id=user_id,
                     original_result=result,
                 ),
             )
+        else:
+            logger.info("Complete extraction for user %s photo", user_id)
 
         await _respond_to_extraction(
             update,
@@ -144,16 +167,23 @@ def _make_text_handler(
 
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.effective_message is None or update.effective_user is None:
+            logger.debug("Skipping text update with no effective message or user")
             return
 
         text = update.effective_message.text
         if text is None:
+            logger.debug("Skipping text update with no text content")
             return
 
         user_id = update.effective_user.id
         pending = correction_store.get(user_id)
 
         if pending is not None:
+            logger.info(
+                "Correction received from user %s (attempt %s/3)",
+                user_id,
+                pending.attempt_count,
+            )
             # Correction flow: refine with user's correction text
             await _handle_correction(
                 update,
@@ -166,13 +196,22 @@ def _make_text_handler(
             return
 
         # No pending correction — treat as new text expense
+        logger.info("Text received from user %s", user_id)
         result = extraction_adapter.extract(text, "text")
 
         if not result.is_complete:
+            missing = _missing_fields(result)
+            logger.info(
+                "Partial extraction for user %s text: missing %s",
+                user_id,
+                ", ".join(missing),
+            )
             correction_store.set(
                 user_id,
                 PendingCorrection(user_id=user_id, original_result=result),
             )
+        else:
+            logger.info("Complete extraction for user %s text", user_id)
 
         await _respond_to_extraction(
             update,
@@ -215,7 +254,12 @@ async def _respond_to_extraction(
             receipt_photo_id=receipt_photo_id,
             created_at=datetime.now(),
         )
-        repository.save(expense)
+        saved_expense = repository.save(expense)
+        logger.info(
+            "Saved expense %s for user %s",
+            saved_expense.id,
+            user_id,
+        )
 
         summary = (
             f"📄 *Extracted expense:*\n"
@@ -249,6 +293,11 @@ async def _handle_correction(
     user_id = update.effective_user.id
 
     if pending.maxed_out:
+        logger.info(
+            "Correction maxed out for user %s (attempt %s/3), clearing",
+            user_id,
+            pending.attempt_count,
+        )
         correction_store.remove(user_id)
         await update.effective_message.reply_text(
             "I couldn't complete the extraction after 3 attempts."
@@ -276,6 +325,10 @@ async def _handle_correction(
         )
         repository.save(expense)
         correction_store.remove(user_id)
+        logger.info(
+            "Correction resolved for user %s: saved updated expense",
+            user_id,
+        )
 
         summary = (
             f"📄 *Updated expense:*\n"
@@ -294,6 +347,11 @@ async def _handle_correction(
             attempt_count=pending.attempt_count + 1,
         )
         correction_store.set(user_id, updated)
+        logger.info(
+            "Correction still incomplete for user %s (attempt %s)",
+            user_id,
+            updated.attempt_count,
+        )
 
         missing = _missing_fields(refined)
         msg = (

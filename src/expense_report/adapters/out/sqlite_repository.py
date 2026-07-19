@@ -6,12 +6,15 @@ Thread safety is the caller's responsibility.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
 from expense_report.domain.models import Expense
+
+logger = logging.getLogger(__name__)
 
 
 class SqliteExpenseRepository:
@@ -22,6 +25,7 @@ class SqliteExpenseRepository:
     """
 
     def __init__(self, db_path: str) -> None:
+        logger.info("Initializing SQLite repository at %s", db_path)
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._create_table()
@@ -73,6 +77,8 @@ class SqliteExpenseRepository:
         )
         self._conn.commit()
 
+        logger.info("Saved expense %s for user %s", expense_id, expense.user_id)
+
         return Expense(
             id=expense_id,
             amount=expense.amount,
@@ -93,8 +99,10 @@ class SqliteExpenseRepository:
         ).fetchone()
 
         if row is None:
+            logger.info("Expense %s not found", expense_id)
             return None
 
+        logger.info("Retrieved expense %s", expense_id)
         return self._row_to_expense(row)
 
     def get_by_user_and_month(
@@ -110,7 +118,15 @@ class SqliteExpenseRepository:
             (user_id, f"{prefix}%"),
         ).fetchall()
 
-        return [self._row_to_expense(row) for row in rows]
+        expenses = [self._row_to_expense(row) for row in rows]
+        logger.info(
+            "Retrieved %s expenses for user %s in %04d-%02d",
+            len(expenses),
+            user_id,
+            year,
+            month,
+        )
+        return expenses
 
     @staticmethod
     def _row_to_expense(row: sqlite3.Row) -> Expense:

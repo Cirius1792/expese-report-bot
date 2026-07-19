@@ -33,6 +33,9 @@ VOLUME /data
 ENV EXPENSE_DB_PATH=/data/expenses.db
 ENV HOME=/tmp
 ENV XDG_CACHE_HOME=/tmp/cache
+# Unbuffered Python: ensure logs are flushed immediately to stdout/stderr
+# so Docker log collector captures them in real time
+ENV PYTHONUNBUFFERED=1
 
 USER botuser
 

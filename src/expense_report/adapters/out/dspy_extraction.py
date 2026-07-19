@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import io
+import logging
 import os
 import re
 import time
@@ -20,6 +21,8 @@ from openai import OpenAI
 from PIL import Image
 
 from expense_report.domain.models import ExtractionResult
+
+logger = logging.getLogger(__name__)
 
 
 class ExpenseSignature(dspy.Signature):
@@ -88,6 +91,7 @@ class DspyExtractionAdapter:
         Creates a combined prompt describing the original partial extraction
         and the user's correction text, then re-runs extraction via dSPy.
         """
+        logger.info("Refining extraction with user correction text")
         source = (
             f"Original partial extraction:\n"
             f"  Amount: {original.amount}\n"
@@ -97,7 +101,13 @@ class DspyExtractionAdapter:
             f"  Category: {original.category}\n\n"
             f"User correction: {correction_text}"
         )
-        return self._call_refine(source)
+        result = self._call_refine(source)
+        logger.info(
+            "Refine complete: %s%s",
+            result.amount or "?",
+            result.currency or "",
+        )
+        return result
 
     def _call_refine(self, source: str) -> ExtractionResult:
         """Call the dSPy extractor with a combined source and return an ExtractionResult."""
@@ -118,25 +128,39 @@ class DspyExtractionAdapter:
         """Extract structured expense data from the given source."""
         if source_type == "image":
             assert isinstance(source, bytes), "Image source must be bytes"
+            logger.info("Extracting from image source")
             image_b64 = self._image_to_base64(source)
             fields = self._call_image_with_retry(image_b64)
-            return ExtractionResult(
+            result = ExtractionResult(
                 amount=self._parse_amount(fields["amount"]),
                 currency=self._parse_currency(fields["currency"]),
                 merchant=fields["merchant"] if fields["merchant"] else None,
                 date=self._parse_date(fields["date"]),
                 category=fields["category"] if fields["category"] else None,
             )
+            logger.info(
+                "Image extraction complete: %s%s",
+                result.amount or "?",
+                result.currency or "",
+            )
+            return result
         else:
             assert isinstance(source, str), "Text source must be a string"
+            logger.info("Extracting from text source")
             prediction = self._call_text_with_retry(source)
-            return ExtractionResult(
+            result = ExtractionResult(
                 amount=self._parse_amount(prediction.amount),
                 currency=self._parse_currency(prediction.currency),
                 merchant=prediction.merchant if prediction.merchant else None,
                 date=self._parse_date(prediction.date),
                 category=prediction.category if prediction.category else None,
             )
+            logger.info(
+                "Text extraction complete: %s%s",
+                result.amount or "?",
+                result.currency or "",
+            )
+            return result
 
     def _image_to_base64(self, image_bytes: bytes) -> str:
         """Convert image bytes to a resized base64 string for vision LLMs.
@@ -156,11 +180,21 @@ class DspyExtractionAdapter:
         delays = [1, 2]
         for attempt in range(3):
             try:
+                logger.debug("Text extraction attempt %s/3", attempt + 1)
                 return self._text_extractor(source=source)
             except Exception as e:
                 last_exception = e
+                logger.warning(
+                    "Text extraction failed (attempt %s/3): %s",
+                    attempt + 1,
+                    type(e).__name__,
+                )
                 if attempt < 2:
                     time.sleep(delays[attempt])
+        logger.error(
+            "Text extraction failed after 3 attempts: %s",
+            type(last_exception).__name__,
+        )
         raise last_exception  # type: ignore[misc]
 
     def _call_image_with_retry(self, image_b64: str) -> dict[str, str]:
@@ -178,6 +212,7 @@ class DspyExtractionAdapter:
 
         for attempt in range(3):
             try:
+                logger.debug("Image extraction attempt %s/3", attempt + 1)
                 response = client.chat.completions.create(
                     model=os.environ["LLM_MODEL"].removeprefix("openai/"),
                     messages=[
@@ -214,8 +249,17 @@ class DspyExtractionAdapter:
                 return self._parse_direct_response(content)
             except Exception as e:
                 last_exception = e
+                logger.warning(
+                    "Image extraction failed (attempt %s/3): %s",
+                    attempt + 1,
+                    type(e).__name__,
+                )
                 if attempt < 2:
                     time.sleep(delays[attempt])
+        logger.error(
+            "Image extraction failed after 3 attempts: %s",
+            type(last_exception).__name__,
+        )
         raise last_exception  # type: ignore[misc]
 
     @staticmethod
