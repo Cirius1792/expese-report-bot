@@ -45,7 +45,8 @@ The main agent is an **orchestrator**. For any task requiring multi-step work:
 |----------|------|
 | `oracle` | Architecture/design unclear — consult before writing the handoff |
 | `reviewer` | After worker completes — independent audit of the diff |
-| `search` / `librarian` | Codebase exploration needed before handoff formulation |
+| `search` / `librarian` | Codebase exploration before handoff formulation |
+| `worker` | External research spikes (library comparisons, docs lookup, API references) — delegate, don't research inline |
 
 ## TDD Rules
 - **Red first**: never write implementation before a failing test.
@@ -102,6 +103,7 @@ docs/
 - Put framework or IO code in `domain/`
 - Use `Any` or untyped `dict` as parameter/return types
 - Say "done" without mapping expectations to executed evidence
+- Research external libraries/docs yourself — delegate to a `worker` subagent with a self-contained brief
 
 ## Project Facts
 - **Language:** Python 3.12+ (use `X | Y` unions, PEP 695 generics)
@@ -113,6 +115,20 @@ docs/
 - **CI:** GitHub Actions
 - **Architecture:** Hexagonal (ports & adapters)
 - **Initial adapter:** Telegram bot (in), Telegram Bot API (out)
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in this repo's GitHub Issues. Use the `gh` CLI for all operations. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+All five canonical labels use their default names: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context repo. `CONTEXT.md` and `docs/adr/` at the repo root (not yet created — created lazily by `grill-with-docs`). See `docs/agents/domain.md`.
 
 ## When instructions conflict
 The nearest `AGENTS.md` wins. Explicit user prompts override files.

@@ -1,0 +1,48 @@
+[project]
+name = "expense-report-bot"
+version = "0.1.0"
+description = "A Telegram bot that extracts structured expense data from receipt photos"
+authors = [
+    { name = "Ciro Lucio Tecce", email = "cirolucio.tecce@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "dspy-ai>=2.6",
+    "python-telegram-bot[job-queue]>=21.11",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.26,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "expense_report"
+module-root = "src"
+
+[tool.uv]
+package = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+
+[tool.ty]
+pythonVersion = "3.12"
+paths = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[project.scripts]
+expense-extract = "expense_report.adapters.inbound.cli_extraction:main"
+expense-bot = "expense_report.adapters.inbound.main:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.9",
+    "ty>=0.1",
+]

@@ -1,0 +1,128 @@
+"""SQLite implementation of the ExpenseRepositoryPort.
+
+Uses the sqlite3 module with check_same_thread=False for single-container use.
+Thread safety is the caller's responsibility.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+import uuid
+from datetime import date, datetime
+from decimal import Decimal
+
+from expense_report.domain.models import Expense
+
+
+class SqliteExpenseRepository:
+    """Persists and retrieves Expense records using SQLite.
+
+    Args:
+        db_path: Path to the SQLite database file. Use ':memory:' for tests.
+    """
+
+    def __init__(self, db_path: str) -> None:
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+        self._create_table()
+
+    def _create_table(self) -> None:
+        """Create the expenses table if it doesn't exist."""
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS expenses (
+                id TEXT PRIMARY KEY,
+                amount TEXT NOT NULL,
+                currency TEXT NOT NULL,
+                merchant TEXT NOT NULL,
+                date TEXT NOT NULL,
+                category TEXT,
+                user_id INTEGER NOT NULL,
+                receipt_photo_id TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        self._conn.commit()
+
+    def save(self, expense: Expense) -> Expense:
+        """Persist an expense record.
+
+        If expense.id is None, a new UUID4 is generated.
+        """
+        expense_id = expense.id if expense.id is not None else str(uuid.uuid4())
+
+        self._conn.execute(
+            """
+            INSERT OR REPLACE INTO expenses
+                (id, amount, currency, merchant, date, category,
+                 user_id, receipt_photo_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                expense_id,
+                str(expense.amount),
+                expense.currency,
+                expense.merchant,
+                expense.date.isoformat(),
+                expense.category,
+                expense.user_id,
+                expense.receipt_photo_id,
+                expense.created_at.isoformat(),
+            ),
+        )
+        self._conn.commit()
+
+        return Expense(
+            id=expense_id,
+            amount=expense.amount,
+            currency=expense.currency,
+            merchant=expense.merchant,
+            date=expense.date,
+            category=expense.category,
+            user_id=expense.user_id,
+            receipt_photo_id=expense.receipt_photo_id,
+            created_at=expense.created_at,
+        )
+
+    def get_by_id(self, expense_id: str) -> Expense | None:
+        """Retrieve a single expense by its unique identifier."""
+        row = self._conn.execute(
+            "SELECT * FROM expenses WHERE id = ?",
+            (expense_id,),
+        ).fetchone()
+
+        if row is None:
+            return None
+
+        return self._row_to_expense(row)
+
+    def get_by_user_and_month(
+        self,
+        user_id: int,
+        year: int,
+        month: int,
+    ) -> list[Expense]:
+        """Retrieve all expenses for a given user in a given month, newest first."""
+        prefix = f"{year:04d}-{month:02d}"
+        rows = self._conn.execute(
+            "SELECT * FROM expenses WHERE user_id = ? AND date LIKE ? ORDER BY created_at DESC",
+            (user_id, f"{prefix}%"),
+        ).fetchall()
+
+        return [self._row_to_expense(row) for row in rows]
+
+    @staticmethod
+    def _row_to_expense(row: sqlite3.Row) -> Expense:
+        """Convert a SQLite row to an Expense domain object."""
+        return Expense(
+            id=row["id"],
+            amount=Decimal(row["amount"]),
+            currency=row["currency"],
+            merchant=row["merchant"],
+            date=date.fromisoformat(row["date"]),
+            category=row["category"],
+            user_id=row["user_id"],
+            receipt_photo_id=row["receipt_photo_id"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
