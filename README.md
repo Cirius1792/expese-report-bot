@@ -9,6 +9,7 @@ A Telegram bot that extracts structured expense data from receipt photos and fre
 - **Correction loop**: If the LLM can't extract all required fields, the bot asks for missing info. You can refine up to 3 times before manual intervention is suggested
 - **Monthly CSV reports**: `/report` generates a CSV with all your expenses for the current month
 - **User isolation**: Each Telegram user sees only their own expenses
+- **User authorization whitelist**: Only Telegram user IDs listed in a JSON config file can interact with the bot; unauthorized attempts are silently ignored and written to `unauthorized.log`
 
 ## Prerequisites
 
@@ -43,7 +44,34 @@ LLM_MODEL=gpt-4o                            # or any model your endpoint support
 
 # Optional
 EXPENSE_DB_PATH=expenses.db                  # defaults to expenses.db
+
+# Authorization
+AUTHORIZED_USERS_CONFIG_PATH=authorized-users.json      # JSON whitelist of Telegram user IDs
+UNAUTHORIZED_LOG_PATH=unauthorized.log                  # optional; defaults beside EXPENSE_DB_PATH
 ```
+
+### Telegram user authorization
+
+Create a whitelist JSON file before using the bot:
+
+```json
+{
+  "authorized_users": ["123456789"]
+}
+```
+
+Values must be numeric strings. Telegram user IDs that are not listed are silently ignored. Each unauthorized attempt appends one line to the dedicated audit file:
+
+```text
+2026-07-19T12:00:00Z user_id=987654321
+```
+
+Failure behavior:
+
+- Missing `AUTHORIZED_USERS_CONFIG_PATH`, missing whitelist file, or unreadable whitelist file: the bot starts with no authorized users and logs a warning.
+- Malformed JSON: startup fails.
+- Valid JSON with invalid schema: the bot starts with no authorized users and logs a warning.
+- Unwritable unauthorized audit log: startup fails.
 
 ## Usage
 
@@ -71,17 +99,32 @@ uv run expense-extract extract-from-text "lunch 15.50 eur at Mario's Pizzeria on
 
 ## Docker Deployment
 
-```bash
-# Build and start the bot
-cp .env.deploy.example .env.deploy
-# Edit .env.deploy with your real credentials
+The Compose setup uses **two separate env files** for different purposes:
 
+| File | Purpose | Used by |
+|------|---------|---------|
+| `.env` | Bot runtime environment variables (`TELEGRAM_BOT_TOKEN`, `LLM_*`, `AUTHORIZED_USERS_CONFIG_PATH` etc.) | `docker-compose.yml` `env_file:` directive — injected into the running container |
+| `.env.deploy` | Compose file interpolation (`${UID}`, `${GID}`) | `--env-file .env.deploy` flag — resolved at `docker compose up` time, **not** passed to the container |
+
+```bash
+# 1. Copy runtime env file (for container environment)
+cp .env.example .env
+# Edit .env with your real Telegram token, LLM credentials, and authorization config
+
+# 2. Copy Compose interpolation file (for host file ownership)
+cp .env.deploy.example .env.deploy
+# Edit .env.deploy UID/GID if your host user is not 1000:1000
+
+# 3. Start with both files — one for interpolation, one for the container
+# Compose automatically picks up env_file: .env defined in docker-compose.yml
 docker compose --env-file .env.deploy up -d
 ```
 
 The container:
 - Runs as the `UID:GID` specified in `.env.deploy` so the bind-mounted database is owned by the host user
 - Persists the SQLite database to `./data/expenses.db` on the host
+- Reads `AUTHORIZED_USERS_CONFIG_PATH` from `.env` at runtime. **In `.env`, set `AUTHORIZED_USERS_CONFIG_PATH=/data/authorized-users.json`** and place the whitelist file in `./data/` on the host. (The default from `.env.example` is a local path — Docker needs the container path.)
+- Optionally set `UNAUTHORIZED_LOG_PATH=/data/unauthorized.log` in `.env` for a dedicated audit log inside the same persisted volume.
 - Auto-restarts unless explicitly stopped (`restart: unless-stopped`)
 
 **Managing the bot:**
@@ -109,8 +152,8 @@ uv run behave
 uv run ruff format     # code formatting
 uv run ruff check      # linting
 uv run ty check        # type checking
-uv run pytest          # 92 unit/integration tests
-uv run behave          # 15 BDD scenarios, 126 steps
+uv run pytest          # unit/integration tests
+uv run behave          # BDD scenarios
 ```
 
 ## Architecture
@@ -167,6 +210,7 @@ src/expense_report/
 | 8 | Multiple correction retries with max attempt limit | ✅ |
 | 9 | Generate monthly CSV expense report | ✅ |
 | 10 | Expenses are isolated per user | ✅ |
+| 11 | User authorization whitelist | ✅ |
 
 ## License
 
