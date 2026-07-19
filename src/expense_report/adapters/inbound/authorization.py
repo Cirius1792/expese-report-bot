@@ -91,10 +91,11 @@ def load_authorized_user_ids(config_path: str | None) -> frozenset[int]:
 
 
 def load_authorized_user_ids_from_env(
-    environ: Mapping[str, str] = os.environ,
+    environ: Mapping[str, str] | None = None,
 ) -> frozenset[int]:
     """Load authorized Telegram user IDs using AUTHORIZED_USERS_CONFIG_PATH."""
-    return load_authorized_user_ids(environ.get(AUTHORIZED_USERS_CONFIG_ENV))
+    source_environ = os.environ if environ is None else environ
+    return load_authorized_user_ids(source_environ.get(AUTHORIZED_USERS_CONFIG_ENV))
 
 
 def resolve_unauthorized_log_path(db_path: str, unauthorized_log_path: str | None) -> Path:

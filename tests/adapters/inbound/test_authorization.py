@@ -197,12 +197,20 @@ class TestAuthorizationGuard:
         assert not audit.path.exists()
 
     def test_register_authorization_guard_uses_type_handler_group_minus_one(
-        self, tmp_path: Path
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        from expense_report.adapters.inbound import authorization as authorization_module
+
+        type_handler = MagicMock()
+        monkeypatch.setattr(authorization_module, "TypeHandler", type_handler)
         app = MagicMock()
         audit = UnauthorizedAttemptAudit(tmp_path / "unauthorized.log")
 
         register_authorization_guard(app, {123456789}, audit)
 
-        _, kwargs = app.add_handler.call_args
+        type_handler_args, _ = type_handler.call_args
+        assert type_handler_args[0] is authorization_module.Update
+        assert callable(type_handler_args[1])
+        handler_args, kwargs = app.add_handler.call_args
+        assert handler_args[0] is type_handler.return_value
         assert kwargs == {"group": -1}
