@@ -51,6 +51,19 @@ class TestExpenseRepositoryPortProtocol:
                     if e.user_id == user_id and e.date.year == year and e.date.month == month
                 ]
 
+            def get_months_with_expenses(self, user_id: int, year: int) -> set[int]:
+                return {
+                    e.date.month
+                    for e in self._store.values()
+                    if e.user_id == user_id and e.date.year == year
+                }
+
+            def get_total_by_user_and_year(self, user_id: int, year: int) -> Decimal:
+                return sum(
+                    (e.amount for e in self._store.values() if e.user_id == user_id and e.date.year == year),
+                    Decimal("0"),
+                )
+
         repo = FakeRepository()
         assert isinstance(repo, ExpenseRepositoryPort), (
             "FakeRepository must satisfy ExpenseRepositoryPort protocol"

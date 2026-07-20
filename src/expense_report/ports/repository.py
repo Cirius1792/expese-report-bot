@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Protocol, runtime_checkable
 
 from expense_report.domain.models import Expense
@@ -48,5 +49,29 @@ class ExpenseRepositoryPort(Protocol):
 
         Returns:
             A list of expenses, newest first.
+        """
+        ...
+
+    def get_months_with_expenses(self, user_id: int, year: int) -> set[int]:
+        """Return the set of month numbers (1-12) that have expenses for a user in a year.
+
+        Args:
+            user_id: The Telegram user id.
+            year: The year (e.g., 2026).
+
+        Returns:
+            A set of month numbers with at least one expense (empty set if none).
+        """
+        ...
+
+    def get_total_by_user_and_year(self, user_id: int, year: int) -> Decimal:
+        """Return the sum of all expense amounts for a user in a year.
+
+        Args:
+            user_id: The Telegram user id.
+            year: The year (e.g., 2026).
+
+        Returns:
+            The total amount as Decimal (0.00 if no expenses).
         """
         ...
