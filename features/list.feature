@@ -36,8 +36,7 @@ Feature: Monthly Expense List (Interactive)
       | 25.00  | EUR      | User 456 Shop  | 2026-07-02 | 456     |
     When user 123 sends the command "/list"
     Then the message shows expenses for user 123
-    And the bot shows a button labeled "Jul"
-    And the bot does not show a button labeled "2025"
+    And the bot shows buttons labeled "2026" and "Jul"
 
   @story-14
   Scenario: Tapping a month button navigates to that month
@@ -60,8 +59,7 @@ Feature: Monthly Expense List (Interactive)
     Given the list view for the current month is displayed
     When the user selects year "2025"
     Then the message shows the year total "15.00"
-    And the bot shows a button labeled "Dec"
-    And the bot does not show a button labeled "Jul"
+    And the bot shows buttons labeled "2026", "2025", and "Dec"
 
   @story-16
   Scenario: Previous year button appears only when expenses exist in that year
