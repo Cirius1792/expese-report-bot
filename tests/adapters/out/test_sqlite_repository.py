@@ -273,3 +273,229 @@ class TestSerialization:
         from expense_report.ports.repository import ExpenseRepositoryPort
 
         assert isinstance(repo, ExpenseRepositoryPort)
+
+
+class TestGetMonthsWithExpenses:
+    """Tests for get_months_with_expenses query."""
+
+    def test_returns_months_with_expenses(self) -> None:
+        """Queries across a year and returns only months that have expenses."""
+        from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
+
+        repo = SqliteExpenseRepository(":memory:")
+        user_id = 12345
+
+        # Seed: July (2 expenses), March (1 expense), no other months
+        for expense_date, merchant in [
+            ("2026-07-10", "Shop A"),
+            ("2026-07-20", "Shop B"),
+            ("2026-03-05", "Shop C"),
+        ]:
+            repo.save(
+                Expense(
+                    id=None,
+                    amount=Decimal("10.00"),
+                    currency="EUR",
+                    merchant=merchant,
+                    date=date.fromisoformat(expense_date),
+                    category=None,
+                    user_id=user_id,
+                    receipt_photo_id=None,
+                    created_at=datetime.fromisoformat(f"{expense_date}T12:00:00"),
+                )
+            )
+
+        result = repo.get_months_with_expenses(user_id, 2026)
+        assert result == {3, 7}
+
+    def test_returns_empty_set_when_no_expenses(self) -> None:
+        """Returns empty set for a user with no expenses in that year."""
+        from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
+
+        repo = SqliteExpenseRepository(":memory:")
+        result = repo.get_months_with_expenses(99999, 2026)
+        assert result == set()
+
+    def test_multi_user_isolation(self) -> None:
+        """Each user sees only their own months."""
+        from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
+
+        repo = SqliteExpenseRepository(":memory:")
+
+        repo.save(
+            Expense(
+                id=None,
+                amount=Decimal("10.00"),
+                currency="EUR",
+                merchant="A",
+                date=date(2026, 7, 1),
+                category=None,
+                user_id=123,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 1, 12, 0, 0),
+            )
+        )
+        repo.save(
+            Expense(
+                id=None,
+                amount=Decimal("20.00"),
+                currency="EUR",
+                merchant="B",
+                date=date(2026, 3, 1),
+                category=None,
+                user_id=456,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 3, 1, 12, 0, 0),
+            )
+        )
+
+        assert repo.get_months_with_expenses(123, 2026) == {7}
+        assert repo.get_months_with_expenses(456, 2026) == {3}
+
+    def test_different_years_returned_separately(self) -> None:
+        """Querying 2025 returns months only from 2025, not 2026."""
+        from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
+
+        repo = SqliteExpenseRepository(":memory:")
+
+        repo.save(
+            Expense(
+                id=None,
+                amount=Decimal("10.00"),
+                currency="EUR",
+                merchant="A",
+                date=date(2026, 7, 1),
+                category=None,
+                user_id=123,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 1, 12, 0, 0),
+            )
+        )
+        repo.save(
+            Expense(
+                id=None,
+                amount=Decimal("20.00"),
+                currency="EUR",
+                merchant="B",
+                date=date(2025, 12, 1),
+                category=None,
+                user_id=123,
+                receipt_photo_id=None,
+                created_at=datetime(2025, 12, 1, 12, 0, 0),
+            )
+        )
+
+        assert repo.get_months_with_expenses(123, 2025) == {12}
+        assert repo.get_months_with_expenses(123, 2026) == {7}
+
+
+class TestGetTotalByUserAndYear:
+    """Tests for get_total_by_user_and_year query."""
+
+    def test_sums_all_expenses_in_year(self) -> None:
+        """Returns the sum of all expense amounts for a user in a year."""
+        from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
+
+        repo = SqliteExpenseRepository(":memory:")
+        user_id = 12345
+
+        for expense_date, amount in [
+            ("2026-07-10", "42.50"),
+            ("2026-07-20", "12.50"),
+            ("2026-03-05", "30.00"),
+        ]:
+            repo.save(
+                Expense(
+                    id=None,
+                    amount=Decimal(amount),
+                    currency="EUR",
+                    merchant="Shop",
+                    date=date.fromisoformat(expense_date),
+                    category=None,
+                    user_id=user_id,
+                    receipt_photo_id=None,
+                    created_at=datetime.fromisoformat(f"{expense_date}T12:00:00"),
+                )
+            )
+
+        result = repo.get_total_by_user_and_year(user_id, 2026)
+        assert result == Decimal("85.00")
+
+    def test_returns_zero_when_no_expenses(self) -> None:
+        """Returns Decimal 0.00 when no expenses exist for the user/year."""
+        from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
+
+        repo = SqliteExpenseRepository(":memory:")
+        result = repo.get_total_by_user_and_year(99999, 2026)
+        assert result == Decimal("0.00")
+
+    def test_multi_user_isolation(self) -> None:
+        """Each user's total is independent."""
+        from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
+
+        repo = SqliteExpenseRepository(":memory:")
+
+        repo.save(
+            Expense(
+                id=None,
+                amount=Decimal("50.00"),
+                currency="EUR",
+                merchant="A",
+                date=date(2026, 7, 1),
+                category=None,
+                user_id=123,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 1, 12, 0, 0),
+            )
+        )
+        repo.save(
+            Expense(
+                id=None,
+                amount=Decimal("30.00"),
+                currency="EUR",
+                merchant="B",
+                date=date(2026, 7, 2),
+                category=None,
+                user_id=456,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 2, 12, 0, 0),
+            )
+        )
+
+        assert repo.get_total_by_user_and_year(123, 2026) == Decimal("50.00")
+        assert repo.get_total_by_user_and_year(456, 2026) == Decimal("30.00")
+
+    def test_only_sums_requested_year(self) -> None:
+        """Only sums expenses from the specified year."""
+        from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
+
+        repo = SqliteExpenseRepository(":memory:")
+
+        repo.save(
+            Expense(
+                id=None,
+                amount=Decimal("100.00"),
+                currency="EUR",
+                merchant="A",
+                date=date(2026, 7, 1),
+                category=None,
+                user_id=123,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 1, 12, 0, 0),
+            )
+        )
+        repo.save(
+            Expense(
+                id=None,
+                amount=Decimal("50.00"),
+                currency="EUR",
+                merchant="B",
+                date=date(2025, 12, 1),
+                category=None,
+                user_id=123,
+                receipt_photo_id=None,
+                created_at=datetime(2025, 12, 1, 12, 0, 0),
+            )
+        )
+
+        assert repo.get_total_by_user_and_year(123, 2026) == Decimal("100.00")

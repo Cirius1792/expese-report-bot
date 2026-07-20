@@ -128,6 +128,42 @@ class SqliteExpenseRepository:
         )
         return expenses
 
+    def get_months_with_expenses(self, user_id: int, year: int) -> set[int]:
+        """Return the set of month numbers (1-12) that have expenses for a user in a year."""
+        prefix = f"{year:04d}-"
+        rows = self._conn.execute(
+            "SELECT DISTINCT substr(date, 6, 2) AS month FROM expenses"
+            " WHERE user_id = ? AND date LIKE ?",
+            (user_id, f"{prefix}%"),
+        ).fetchall()
+
+        months = {int(row["month"]) for row in rows}
+        logger.info(
+            "Found %s months with expenses for user %s in %04d",
+            len(months),
+            user_id,
+            year,
+        )
+        return months
+
+    def get_total_by_user_and_year(self, user_id: int, year: int) -> Decimal:
+        """Return the sum of all expense amounts for a user in a year."""
+        prefix = f"{year:04d}-"
+        row = self._conn.execute(
+            "SELECT COALESCE(SUM(CAST(amount AS REAL)), 0.0) AS total FROM expenses"
+            " WHERE user_id = ? AND date LIKE ?",
+            (user_id, f"{prefix}%"),
+        ).fetchone()
+
+        total = Decimal(str(row["total"]))
+        logger.info(
+            "Total for user %s in %04d: %s",
+            user_id,
+            year,
+            total,
+        )
+        return total
+
     @staticmethod
     def _row_to_expense(row: sqlite3.Row) -> Expense:
         """Convert a SQLite row to an Expense domain object."""
