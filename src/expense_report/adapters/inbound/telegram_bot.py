@@ -51,24 +51,42 @@ _MONTH_NAMES: dict[int, str] = {
     12: "Dec",
 }
 
+_FULL_MONTH_NAMES: dict[int, str] = {
+    1: "January",
+    2: "February",
+    3: "March",
+    4: "April",
+    5: "May",
+    6: "June",
+    7: "July",
+    8: "August",
+    9: "September",
+    10: "October",
+    11: "November",
+    12: "December",
+}
+
 
 def _format_month_view(expenses: list[Expense], year: int, month: int) -> str:
     """Format a list of expenses as a month-view message text."""
-    month_name = datetime(year, month, 1).strftime("%B")
+    month_name = _FULL_MONTH_NAMES.get(month, str(month))
 
     if not expenses:
         return f"📊 {month_name} {year}\n\nNo expenses recorded for this month."
 
     lines = [f"📊 {month_name} {year}\n"]
-    total = Decimal("0.00")
 
+    totals_by_currency: dict[str, Decimal] = {}
     for e in expenses:
         lines.append(
             f"{e.date}  {e.merchant:<20} {e.amount:>8.2f} {e.currency:<4} {e.category or ''}"
         )
-        total += e.amount
+        totals_by_currency[e.currency] = (
+            totals_by_currency.get(e.currency, Decimal("0.00")) + e.amount
+        )
 
-    lines.append(f"\nTotal: {total:.2f} ({len(expenses)} expenses)")
+    total_parts = [f"{total:.2f} {curr}" for curr, total in totals_by_currency.items()]
+    lines.append(f"\nTotal: {', '.join(total_parts)} ({len(expenses)} expenses)")
     lines.append("\nOnly months with recorded expenses are shown below.")
 
     return "\n".join(lines)
@@ -76,7 +94,7 @@ def _format_month_view(expenses: list[Expense], year: int, month: int) -> str:
 
 def _format_year_view(total: Decimal, year: int) -> str:
     """Format a year aggregate as a message text."""
-    return f"📊 {year} Summary\n\nTotal: {total:.2f} EUR\n\nTap a month below for details."
+    return f"📊 {year} Summary\n\nTotal: {total:.2f}\n\nTap a month below for details."
 
 
 def _build_list_keyboard(
