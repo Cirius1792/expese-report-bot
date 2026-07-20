@@ -18,6 +18,17 @@
 
 > If commands fail, verify against pyproject.toml or ask user to update.
 
+## Pre-commit Hooks
+
+**Gitleaks** scans every commit for secrets (API keys, tokens, passwords).
+
+```bash
+uv run pre-commit install    # MANDATORY one-time setup — blocks commits with secrets
+```
+
+Config: `.pre-commit-config.yaml` (framework), `.gitleaks.toml` (allowlist).
+If `pre-commit install` hasn't been run, stop and run it before any other work.
+
 ## Workflow (EDD)
 
 1. **Before implementation** — Read `doc/adr/` for past decisions. Write expectations in `docs/expectations/<feature>.md`: happy path, edge cases, behaviors that must NOT happen. Be specific, not vague.
@@ -81,6 +92,7 @@ docs/
 ## Boundaries
 
 ### Always Do
+- **Ensure pre-commit is installed** (`uv run pre-commit install`). If missing, install it first.
 - Run `uvx ruff format && uvx ruff check && uvx ty check && uv run pytest` after every change
 - Paste actual command output as evidence — never paraphrase test results
 - Write expectations before implementation
@@ -97,7 +109,8 @@ docs/
 - Repo-wide refactoring
 
 ### Never Do
-- Commit secrets, tokens, or credentials
+- Commit secrets, tokens, or credentials — **gitleaks pre-commit hook blocks these**
+- Bypass the pre-commit hook with `--no-verify` or `SKIP=gitleaks`
 - Skip the test suite before claiming completion
 - Implement without a failing test first
 - Put framework or IO code in `domain/`

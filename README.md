@@ -26,6 +26,9 @@ git clone <repo-url>
 cd expense-report-bot
 uv sync
 
+# Install pre-commit hooks (gitleaks secret scanning)
+uv run pre-commit install
+
 # Set up environment
 cp .env.example .env
 # Edit .env with your actual credentials
@@ -145,6 +148,17 @@ uv run pytest
 # BDD acceptance tests (Behave)
 uv run behave
 ```
+
+### Pre-commit Hooks
+
+Pre-commit runs **gitleaks** on every commit to block accidental secret leaks.
+
+```bash
+uv run pre-commit install          # one-time setup
+uv run pre-commit run --all-files  # test it on the whole repo
+```
+
+Configuration: `.pre-commit-config.yaml` (framework), `.gitleaks.toml` (allowlist).
 
 ### Quality Gate
 

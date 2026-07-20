@@ -1,0 +1,14 @@
+# Gitleaks allowlist configuration
+# This file allows specific secrets or paths to bypass gitleaks detection.
+# Keep it minimal — every allowlist entry is a potential leak vector.
+
+title = "expense-report-bot gitleaks config"
+
+[allowlist]
+description = "Project-specific allowlist"
+
+# Example: allow .env.example files (they contain placeholder values)
+paths = [
+    '''\.env\.example$''',
+    '''authorized-users\.example\.json$''',
+]
