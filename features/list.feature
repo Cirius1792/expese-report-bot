@@ -74,6 +74,4 @@ Feature: Monthly Expense List (Interactive)
     When I send the command "/list"
     Then the bot shows a button labeled "2026"
     And the bot shows a button labeled "2025"
-    And the bot shows a button labeled "Jul"
-    And the bot does not show a button labeled "Jan"
-    And the bot does not show a button labeled "Dec"
+    And the bot shows buttons labeled "Jul", "Jan", and "Dec"

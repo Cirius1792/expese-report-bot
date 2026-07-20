@@ -103,6 +103,7 @@ def _build_list_keyboard(
     active_year: int,
     active_month: int | None,
     year_months: dict[int, set[int]],
+    all_months: bool = False,
 ) -> InlineKeyboardMarkup:
     """Build an inline keyboard with year and month buttons.
 
@@ -110,6 +111,8 @@ def _build_list_keyboard(
         active_year: The currently selected year.
         active_month: The currently selected month, or None for year-view.
         year_months: Mapping of year -> set of month numbers with expenses.
+        all_months: If True, show month buttons for all years (initial list view).
+            If False, show only active_year's months (year/month navigation).
 
     Returns:
         An InlineKeyboardMarkup with year row and month row.
@@ -123,16 +126,31 @@ def _build_list_keyboard(
         keyboard.append(year_buttons)
 
     # Month row — chronological order, only months with expenses
-    months = sorted(year_months.get(active_year, set()))
-    if months:
-        month_buttons = [
-            InlineKeyboardButton(
-                _MONTH_NAMES[m],
-                callback_data=f"month:{active_year}:{m}",
-            )
-            for m in months
-        ]
-        keyboard.append(month_buttons)
+    if all_months:
+        # Show months from all years (initial list view)
+        all_month_buttons: list[InlineKeyboardButton] = []
+        for y in sorted(year_months.keys(), reverse=True):
+            for m in sorted(year_months[y]):
+                all_month_buttons.append(
+                    InlineKeyboardButton(
+                        _MONTH_NAMES[m],
+                        callback_data=f"month:{y}:{m}",
+                    )
+                )
+        if all_month_buttons:
+            keyboard.append(all_month_buttons)
+    else:
+        # Show only active_year's months (navigation views)
+        months = sorted(year_months.get(active_year, set()))
+        if months:
+            month_buttons = [
+                InlineKeyboardButton(
+                    _MONTH_NAMES[m],
+                    callback_data=f"month:{active_year}:{m}",
+                )
+                for m in months
+            ]
+            keyboard.append(month_buttons)
 
     return InlineKeyboardMarkup(keyboard)
 
@@ -182,7 +200,7 @@ def _make_list_handler(repository: ExpenseRepositoryPort):
         expenses = repository.get_by_user_and_month(user_id, active_year, active_month)
 
         text = _format_month_view(expenses, active_year, active_month)
-        keyboard = _build_list_keyboard(active_year, active_month, year_months)
+        keyboard = _build_list_keyboard(active_year, active_month, year_months, all_months=True)
 
         await update.effective_message.reply_text(text, reply_markup=keyboard)
 
