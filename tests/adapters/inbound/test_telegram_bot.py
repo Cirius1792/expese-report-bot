@@ -705,6 +705,190 @@ class TestCorrectionFlow:
         assert "✅ Saved." in reply_text
 
 
+class TestListHandler:
+    """Tests for /list command handler with inline keyboard."""
+
+    def test_shows_current_month_expenses_and_total(self) -> None:
+        """List handler shows current month expenses and total."""
+        repo = MagicMock()
+        repo.get_months_with_expenses.return_value = {7, 3}
+        repo.get_by_user_and_month.return_value = [
+            Expense(
+                id="e1",
+                amount=Decimal("42.50"),
+                currency="EUR",
+                merchant="Supermarket",
+                date=date(2026, 7, 10),
+                category="food",
+                user_id=12345,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 10, 10, 0, 0),
+            ),
+            Expense(
+                id="e2",
+                amount=Decimal("12.50"),
+                currency="EUR",
+                merchant="Coffee Shop",
+                date=date(2026, 7, 20),
+                category="food",
+                user_id=12345,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 20, 11, 0, 0),
+            ),
+        ]
+
+        from expense_report.adapters.inbound.telegram_bot import _make_list_handler
+
+        handler = _make_list_handler(repo)
+        update = _make_update()
+        context = MagicMock()
+
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
+            asyncio.run(handler(update, context))
+
+        repo.get_months_with_expenses.assert_any_call(12345, 2026)
+        repo.get_months_with_expenses.assert_any_call(12345, 2025)
+        repo.get_by_user_and_month.assert_called_once_with(12345, 2026, 7)
+
+        # Verify reply includes expense data and total
+        reply_text = update.effective_message.reply_text.call_args[0][0]
+        assert "Supermarket" in reply_text
+        assert "Coffee Shop" in reply_text
+        assert "55.00" in reply_text
+        assert "July 2026" in reply_text
+
+        # Verify reply_markup is an InlineKeyboardMarkup (ANY as placeholder since we mock)
+        assert "reply_markup" in update.effective_message.reply_text.call_args[1]
+
+    def test_shows_current_month_and_year_buttons(self) -> None:
+        """List handler generates correct inline button labels."""
+
+        repo = MagicMock()
+        repo.get_months_with_expenses.side_effect = [
+            {7, 3},  # 2026
+            set(),  # 2025 (none)
+        ]
+        repo.get_by_user_and_month.return_value = [
+            Expense(
+                id="e1",
+                amount=Decimal("42.50"),
+                currency="EUR",
+                merchant="Shop",
+                date=date(2026, 7, 10),
+                category=None,
+                user_id=12345,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 10, 10, 0, 0),
+            ),
+        ]
+
+        from expense_report.adapters.inbound.telegram_bot import _make_list_handler
+
+        handler = _make_list_handler(repo)
+        update = _make_update()
+        context = MagicMock()
+
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
+            asyncio.run(handler(update, context))
+
+        markup = update.effective_message.reply_text.call_args[1]["reply_markup"]
+        keyboard = markup.inline_keyboard
+
+        # Year row: only 2026 (2025 has no expenses)
+        year_buttons = [btn.text for btn in keyboard[0]]
+        assert year_buttons == ["2026"]
+        assert keyboard[0][0].callback_data == "year:2026"
+
+        # Month row: Jul and Mar
+        month_buttons = [btn.text for btn in keyboard[1]]
+        assert month_buttons == ["Mar", "Jul"]
+        assert keyboard[1][0].callback_data == "month:2026:3"
+        assert keyboard[1][1].callback_data == "month:2026:7"
+
+    def test_previous_year_button_when_expenses_exist(self) -> None:
+        """Both 2026 and 2025 buttons shown when both years have expenses."""
+        repo = MagicMock()
+        repo.get_months_with_expenses.side_effect = [
+            {7},  # 2026
+            {12, 1},  # 2025
+        ]
+        repo.get_by_user_and_month.return_value = [
+            Expense(
+                id="e1",
+                amount=Decimal("10.00"),
+                currency="EUR",
+                merchant="Shop",
+                date=date(2026, 7, 1),
+                category=None,
+                user_id=12345,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 1, 10, 0, 0),
+            ),
+        ]
+
+        from expense_report.adapters.inbound.telegram_bot import _make_list_handler
+
+        handler = _make_list_handler(repo)
+        update = _make_update()
+        context = MagicMock()
+
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
+            asyncio.run(handler(update, context))
+
+        markup = update.effective_message.reply_text.call_args[1]["reply_markup"]
+        keyboard = markup.inline_keyboard
+
+        year_buttons = [btn.text for btn in keyboard[0]]
+        assert year_buttons == ["2026", "2025"]
+
+    def test_no_expenses_shows_informative_message(self) -> None:
+        """When no expenses exist at all, show message without buttons."""
+        repo = MagicMock()
+        repo.get_months_with_expenses.side_effect = [
+            set(),  # 2026
+            set(),  # 2025
+        ]
+
+        from expense_report.adapters.inbound.telegram_bot import _make_list_handler
+
+        handler = _make_list_handler(repo)
+        update = _make_update()
+        context = MagicMock()
+
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
+            asyncio.run(handler(update, context))
+
+        reply_text = update.effective_message.reply_text.call_args[0][0]
+        assert "no" in reply_text.lower()
+        assert "reply_markup" not in update.effective_message.reply_text.call_args[1]
+
+    def test_multi_user_isolation(self) -> None:
+        """User 99999 sees a different user_id passed to repo."""
+        repo = MagicMock()
+        repo.get_months_with_expenses.side_effect = [
+            {7},
+            set(),
+        ]
+        repo.get_by_user_and_month.return_value = []
+
+        from expense_report.adapters.inbound.telegram_bot import _make_list_handler
+
+        handler = _make_list_handler(repo)
+        update = _make_update(user_id=99999)
+        context = MagicMock()
+
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
+            asyncio.run(handler(update, context))
+
+        repo.get_months_with_expenses.assert_any_call(99999, 2026)
+        repo.get_by_user_and_month.assert_called_once_with(99999, 2026, 7)
+
+
 class TestMainFunction:
     """Tests for the main() entry point."""
 

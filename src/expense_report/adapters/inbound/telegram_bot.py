@@ -135,6 +135,50 @@ def _build_list_keyboard(
     return InlineKeyboardMarkup(keyboard)
 
 
+def _make_list_handler(repository: ExpenseRepositoryPort):
+    """Factory: create a /list handler bound to the given repository."""
+
+    async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if update.effective_message is None or update.effective_user is None:
+            logger.debug("Skipping /list update with no effective message or user")
+            return
+
+        user_id = update.effective_user.id
+        now = datetime.now()
+        current_year = now.year
+        current_month = now.month
+
+        logger.info("User %s requested /list", user_id)
+
+        # Discover which years and months have expenses
+        year_months: dict[int, set[int]] = {}
+
+        current_year_months = repository.get_months_with_expenses(user_id, current_year)
+        if current_year_months:
+            year_months[current_year] = current_year_months
+
+        prev_year_months = repository.get_months_with_expenses(user_id, current_year - 1)
+        if prev_year_months:
+            year_months[current_year - 1] = prev_year_months
+
+        if not year_months:
+            await update.effective_message.reply_text(
+                "You have no recorded expenses."
+                " Send me a photo or describe an expense to get started!"
+            )
+            return
+
+        # Show current month's expenses
+        expenses = repository.get_by_user_and_month(user_id, current_year, current_month)
+
+        text = _format_month_view(expenses, current_year, current_month)
+        keyboard = _build_list_keyboard(current_year, current_month, year_months)
+
+        await update.effective_message.reply_text(text, reply_markup=keyboard)
+
+    return handler
+
+
 def register_handlers(
     app: Application,
     extraction_adapter: ExtractionPort,
