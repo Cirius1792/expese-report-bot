@@ -930,6 +930,132 @@ class TestListHandler:
         repo.get_by_user_and_month.assert_called_once_with(99999, 2026, 7)
 
 
+def _make_callback_update(
+    user_id: int = 12345,
+    callback_data: str = "",
+) -> MagicMock:
+    """Create a mock Telegram Update with a CallbackQuery."""
+    update = MagicMock()
+    query = MagicMock()
+    query.data = callback_data
+    query.from_user = MagicMock()
+    query.from_user.id = user_id
+    query.answer = AsyncMock()
+    query.edit_message_text = AsyncMock()
+    update.callback_query = query
+    update.effective_message = MagicMock()
+    update.effective_user = MagicMock()
+    update.effective_user.id = user_id
+    return update
+
+
+class TestListCallbackHandler:
+    """Tests for /list inline keyboard callback handler."""
+
+    def test_month_callback_updates_message(self) -> None:
+        """Tapping a month button edits the message to show that month."""
+        repo = MagicMock()
+        repo.get_by_user_and_month.return_value = [
+            Expense(
+                id="e1",
+                amount=Decimal("30.00"),
+                currency="EUR",
+                merchant="Book Store",
+                date=date(2026, 3, 5),
+                category="shopping",
+                user_id=12345,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 3, 5, 10, 0, 0),
+            ),
+        ]
+        repo.get_months_with_expenses.side_effect = [
+            {7, 3},  # 2026
+            set(),  # 2025
+        ]
+
+        from expense_report.adapters.inbound.telegram_bot import _make_list_callback_handler
+
+        handler = _make_list_callback_handler(repo)
+        update = _make_callback_update(callback_data="month:2026:3")
+        context = MagicMock()
+
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
+            asyncio.run(handler(update, context))
+
+        # Verify query.answer() was called
+        update.callback_query.answer.assert_awaited_once()
+
+        # Verify repository was called for the correct month
+        repo.get_by_user_and_month.assert_called_once_with(12345, 2026, 3)
+
+        # Verify edit_message_text was called with expense data
+        edit_call = update.callback_query.edit_message_text.call_args[1]
+        assert "Book Store" in edit_call["text"]
+        assert "30.00" in edit_call["text"]
+
+        # Verify keyboard was included
+        markup = edit_call["reply_markup"]
+        keyboard = markup.inline_keyboard
+        month_buttons = [btn.text for btn in keyboard[1]]
+        assert "Mar" in month_buttons
+        assert "Jul" in month_buttons
+
+    def test_year_callback_shows_year_total(self) -> None:
+        """Tapping a year button shows year aggregate."""
+        repo = MagicMock()
+        repo.get_total_by_user_and_year.return_value = Decimal("15.00")
+        repo.get_months_with_expenses.side_effect = [
+            {7, 3},  # 2026
+            {12},  # 2025
+        ]
+
+        from expense_report.adapters.inbound.telegram_bot import _make_list_callback_handler
+
+        handler = _make_list_callback_handler(repo)
+        update = _make_callback_update(callback_data="year:2025")
+        context = MagicMock()
+
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
+            asyncio.run(handler(update, context))
+
+        update.callback_query.answer.assert_awaited_once()
+        repo.get_total_by_user_and_year.assert_called_once_with(12345, 2025)
+
+        edit_call = update.callback_query.edit_message_text.call_args[1]
+        assert "2025 Summary" in edit_call["text"]
+        assert "15.00" in edit_call["text"]
+
+        # Month row shows Dec (2025 months)
+        markup = edit_call["reply_markup"]
+        keyboard = markup.inline_keyboard
+        month_buttons = [btn.text for btn in keyboard[1]]
+        assert month_buttons == ["Dec"]
+
+    def test_month_callback_on_empty_month_shows_no_expenses_message(self) -> None:
+        """Month with no expense rows shows informative text."""
+        repo = MagicMock()
+        repo.get_by_user_and_month.return_value = []
+        repo.get_months_with_expenses.side_effect = [
+            {7},
+            set(),
+        ]
+
+        from expense_report.adapters.inbound.telegram_bot import _make_list_callback_handler
+
+        handler = _make_list_callback_handler(repo)
+        update = _make_callback_update(callback_data="month:2026:3")
+        context = MagicMock()
+
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
+            asyncio.run(handler(update, context))
+
+        edit_call = update.callback_query.edit_message_text.call_args[1]
+        assert "No expenses" in edit_call["text"]
+
+
 class TestMainFunction:
     """Tests for the main() entry point."""
 

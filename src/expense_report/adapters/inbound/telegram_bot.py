@@ -187,6 +187,57 @@ def _make_list_handler(repository: ExpenseRepositoryPort):
     return handler
 
 
+def _make_list_callback_handler(repository: ExpenseRepositoryPort):
+    """Factory: create a callback handler for /list inline keyboard buttons."""
+
+    async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None:
+            logger.debug("Skipping callback with no CallbackQuery")
+            return
+
+        await query.answer()
+        data = query.data
+        if data is None:
+            return
+
+        user_id = query.from_user.id
+        now = datetime.now()
+
+        # Rebuild year_months for keyboard (lightweight queries)
+        year_months: dict[int, set[int]] = {}
+        current_year_months = repository.get_months_with_expenses(user_id, now.year)
+        if current_year_months:
+            year_months[now.year] = current_year_months
+        prev_year_months = repository.get_months_with_expenses(user_id, now.year - 1)
+        if prev_year_months:
+            year_months[now.year - 1] = prev_year_months
+
+        if data.startswith("year:"):
+            year = int(data.split(":")[1])
+            logger.info("User %s selected year %s in /list", user_id, year)
+
+            total = repository.get_total_by_user_and_year(user_id, year)
+            text = _format_year_view(total, year)
+            keyboard = _build_list_keyboard(year, None, year_months)
+
+            await query.edit_message_text(text=text, reply_markup=keyboard)
+
+        elif data.startswith("month:"):
+            _, year_str, month_str = data.split(":")
+            year = int(year_str)
+            month = int(month_str)
+            logger.info("User %s selected month %s/%s in /list", user_id, year, month)
+
+            expenses = repository.get_by_user_and_month(user_id, year, month)
+            text = _format_month_view(expenses, year, month)
+            keyboard = _build_list_keyboard(year, month, year_months)
+
+            await query.edit_message_text(text=text, reply_markup=keyboard)
+
+    return handler
+
+
 def register_handlers(
     app: Application,
     extraction_adapter: ExtractionPort,
