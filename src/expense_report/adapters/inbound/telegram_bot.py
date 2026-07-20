@@ -94,25 +94,34 @@ def _format_month_view(expenses: list[Expense], year: int, month: int) -> str:
     return "\n".join(lines)
 
 
-def _format_year_view(total: Decimal, year: int) -> str:
-    """Format a year aggregate as a message text."""
-    return f"📊 {year} Summary\n\nTotal: {total:.2f}\n\nTap a month below for details."
+def _format_year_view(expenses: list[Expense], year: int) -> str:
+    """Format a year aggregate as a message text, grouped by currency."""
+    if not expenses:
+        return (
+            f"📊 {year} Summary\n\n"
+            f"No expenses recorded for this year.\n\n"
+            f"Tap a month below for details."
+        )
+
+    totals_by_currency: dict[str, Decimal] = {}
+    for e in expenses:
+        totals_by_currency[e.currency] = (
+            totals_by_currency.get(e.currency, Decimal("0.00")) + e.amount
+        )
+
+    total_parts = [f"{total:.2f} {curr}" for curr, total in totals_by_currency.items()]
+    return f"📊 {year} Summary\n\nTotal: {', '.join(total_parts)}\n\nTap a month below for details."
 
 
 def _build_list_keyboard(
     active_year: int,
-    active_month: int | None,
     year_months: dict[int, set[int]],
-    all_months: bool = False,
 ) -> InlineKeyboardMarkup:
     """Build an inline keyboard with year and month buttons.
 
     Args:
         active_year: The currently selected year.
-        active_month: The currently selected month, or None for year-view.
         year_months: Mapping of year -> set of month numbers with expenses.
-        all_months: If True, show month buttons for all years (initial list view).
-            If False, show only active_year's months (year/month navigation).
 
     Returns:
         An InlineKeyboardMarkup with year row and month row.
@@ -125,32 +134,17 @@ def _build_list_keyboard(
         year_buttons = [InlineKeyboardButton(str(y), callback_data=f"year:{y}") for y in years]
         keyboard.append(year_buttons)
 
-    # Month row — chronological order, only months with expenses
-    if all_months:
-        # Show months from all years (initial list view)
-        all_month_buttons: list[InlineKeyboardButton] = []
-        for y in sorted(year_months.keys(), reverse=True):
-            for m in sorted(year_months[y]):
-                all_month_buttons.append(
-                    InlineKeyboardButton(
-                        _MONTH_NAMES[m],
-                        callback_data=f"month:{y}:{m}",
-                    )
-                )
-        if all_month_buttons:
-            keyboard.append(all_month_buttons)
-    else:
-        # Show only active_year's months (navigation views)
-        months = sorted(year_months.get(active_year, set()))
-        if months:
-            month_buttons = [
-                InlineKeyboardButton(
-                    _MONTH_NAMES[m],
-                    callback_data=f"month:{active_year}:{m}",
-                )
-                for m in months
-            ]
-            keyboard.append(month_buttons)
+    # Month row — chronological order, only months with expenses for active year
+    months = sorted(year_months.get(active_year, set()))
+    if months:
+        month_buttons = [
+            InlineKeyboardButton(
+                _MONTH_NAMES[m],
+                callback_data=f"month:{active_year}:{m}",
+            )
+            for m in months
+        ]
+        keyboard.append(month_buttons)
 
     return InlineKeyboardMarkup(keyboard)
 
@@ -200,7 +194,7 @@ def _make_list_handler(repository: ExpenseRepositoryPort):
         expenses = repository.get_by_user_and_month(user_id, active_year, active_month)
 
         text = _format_month_view(expenses, active_year, active_month)
-        keyboard = _build_list_keyboard(active_year, active_month, year_months, all_months=True)
+        keyboard = _build_list_keyboard(active_year, year_months)
 
         await update.effective_message.reply_text(text, reply_markup=keyboard)
 
@@ -252,16 +246,18 @@ def _make_list_callback_handler(repository: ExpenseRepositoryPort):
 
         if data.startswith("year:"):
             logger.info("User %s selected year %s in /list", user_id, year)
-            total = repository.get_total_by_user_and_year(user_id, year)
-            text = _format_year_view(total, year)
-            keyboard = _build_list_keyboard(year, None, year_months)
+            all_expenses: list[Expense] = []
+            for m in year_months.get(year, set()):
+                all_expenses.extend(repository.get_by_user_and_month(user_id, year, m))
+            text = _format_year_view(all_expenses, year)
+            keyboard = _build_list_keyboard(year, year_months)
             await query.edit_message_text(text=text, reply_markup=keyboard)
 
         elif data.startswith("month:"):
             logger.info("User %s selected month %s/%s in /list", user_id, year, month)
             expenses = repository.get_by_user_and_month(user_id, year, month)
             text = _format_month_view(expenses, year, month)
-            keyboard = _build_list_keyboard(year, month, year_months)
+            keyboard = _build_list_keyboard(year, year_months)
             await query.edit_message_text(text=text, reply_markup=keyboard)
 
     return handler

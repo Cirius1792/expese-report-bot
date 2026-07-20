@@ -69,4 +69,6 @@ Feature: Monthly Expense List (Interactive)
       | 15.00  | EUR      | Old Shop     | 2025-12-01 | shopping |
       | 20.00  | EUR      | Last Jan     | 2025-01-15 | food     |
     When I send the command "/list"
-    Then the bot shows exactly these buttons: "2026, 2025, Jul, Jan, Dec"
+    Then the bot shows buttons labeled "2026", "2025", and "Jul"
+    And the bot does not show a button labeled "Jan"
+    And the bot does not show a button labeled "Dec"

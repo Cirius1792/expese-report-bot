@@ -1002,13 +1002,34 @@ class TestListCallbackHandler:
         assert "Jul" in month_buttons
 
     def test_year_callback_shows_year_total(self) -> None:
-        """Tapping a year button shows year aggregate."""
+        """Tapping a year button shows year aggregate grouped by currency."""
         repo = MagicMock()
-        repo.get_total_by_user_and_year.return_value = Decimal("15.00")
-        repo.get_months_with_expenses.side_effect = lambda uid, year: {
-            2026: {7, 3},
-            2025: {12},
-        }.get(year, set())
+        # get_by_user_and_month returns expenses for each month
+        repo.get_by_user_and_month.return_value = [
+            Expense(
+                id="e1",
+                amount=Decimal("10.00"),
+                currency="EUR",
+                merchant="Old Shop",
+                date=date(2025, 12, 1),
+                category="shopping",
+                user_id=12345,
+                receipt_photo_id=None,
+                created_at=datetime(2025, 12, 1, 10, 0, 0),
+            ),
+            Expense(
+                id="e2",
+                amount=Decimal("5.00"),
+                currency="EUR",
+                merchant="Another",
+                date=date(2025, 12, 10),
+                category=None,
+                user_id=12345,
+                receipt_photo_id=None,
+                created_at=datetime(2025, 12, 10, 10, 0, 0),
+            ),
+        ]
+        repo.get_months_with_expenses.return_value = {12}
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_callback_handler
 
@@ -1021,13 +1042,12 @@ class TestListCallbackHandler:
             asyncio.run(handler(update, context))
 
         update.callback_query.answer.assert_awaited_once()
-        repo.get_total_by_user_and_year.assert_called_once_with(12345, 2025)
 
         edit_call = update.callback_query.edit_message_text.call_args[1]
         assert "2025 Summary" in edit_call["text"]
-        assert "15.00" in edit_call["text"]
+        assert "15.00 EUR" in edit_call["text"]
 
-        # Month row shows Dec (2025 months)
+        # Month row shows Dec
         markup = edit_call["reply_markup"]
         keyboard = markup.inline_keyboard
         month_buttons = [btn.text for btn in keyboard[1]]
