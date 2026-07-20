@@ -14,8 +14,8 @@ Releases are tag-triggered. Push a semver tag (`vX.Y.Z`) and the pipeline builds
 Use [Semantic Versioning](https://semver.org/):
 
 - **Major (X.0.0):** breaking changes to the bot's behavior or API
-- **Minor (0.Y.0):** new features, backward-compatible
-- **Patch (0.0.Z):** bug fixes, no new behavior
+- **Minor (X.Y.0):** new features, backward-compatible
+- **Patch (X.Y.Z):** bug fixes, no new behavior
 
 ### 2. Update pyproject.toml
 
@@ -32,8 +32,6 @@ version = "1.2.3"
 git add pyproject.toml
 git commit -m "chore: bump version to 1.2.3"
 ```
-
-Use `--no-verify` if the pre-commit hook fails (known read-only filesystem issue).
 
 ### 4. Create and push the tag
 
