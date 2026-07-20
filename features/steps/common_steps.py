@@ -48,6 +48,13 @@ def step_database_empty(context: Any) -> None:
     assert len(results) == 0, "Database should start empty"
 
 
+@given("I have no expenses recorded")
+def step_no_expenses_recorded(context: Any) -> None:
+    """Ensure no expenses exist for the current user/period."""
+    results = context.repository.get_by_user_and_month(user_id=context.user_id, year=2026, month=7)
+    assert len(results) == 0
+
+
 @given("the bot is running")
 def step_bot_running(context: Any) -> None:
     """No-op — the bot handlers are stateless functions, no server needed."""

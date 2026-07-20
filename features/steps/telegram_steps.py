@@ -207,6 +207,7 @@ def step_send_command(context: Any, command: str) -> None:
     """Send a bot command to the appropriate handler."""
     from expense_report.adapters.inbound.telegram_bot import (
         _handle_start,
+        _make_list_handler,
         _make_report_handler,
     )
 
@@ -223,6 +224,15 @@ def step_send_command(context: Any, command: str) -> None:
         with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
             mock_dt.now.return_value = context.current_datetime
             asyncio.run(handler(update, ctx))
+
+    elif command == "/list":
+        handler = _make_list_handler(context.repository)
+        ctx = MagicMock()
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
+            mock_dt.now.return_value = context.current_datetime
+            asyncio.run(handler(update, ctx))
+        context._list_message_text = update.effective_message.reply_text.call_args[0][0]
+        context._list_markup = update.effective_message.reply_text.call_args[1].get("reply_markup")
 
 
 # ── Then steps ──────────────────────────────────────────────────────────────
