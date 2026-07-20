@@ -17,8 +17,7 @@ Feature: Monthly Expense List (Interactive)
     When I send the command "/list"
     Then the message shows expenses for July 2026
     And the message shows the total "55.00"
-    And the bot shows buttons labeled "Jul" and "Mar"
-    And the bot shows a button labeled "2026"
+    And the bot shows buttons labeled "2026", "Jul", and "Mar"
     And the bot does not show a button labeled "2025"
     And the message explains that only months with expenses are shown
 
@@ -72,6 +71,4 @@ Feature: Monthly Expense List (Interactive)
       | 15.00  | EUR      | Old Shop     | 2025-12-01 | shopping |
       | 20.00  | EUR      | Last Jan     | 2025-01-15 | food     |
     When I send the command "/list"
-    Then the bot shows a button labeled "2026"
-    And the bot shows a button labeled "2025"
-    And the bot shows buttons labeled "Jul", "Jan", and "Dec"
+    Then the bot shows exactly these buttons: "2026, 2025, Jul, Jan, Dec"

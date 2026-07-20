@@ -167,21 +167,28 @@ def step_message_shows_year_total(context: Any, total: str) -> None:
 
 @then('the bot shows buttons labeled "{label1}" and "{label2}"')
 def step_buttons_labeled_two(context: Any, label1: str, label2: str) -> None:
-    all_labels = _get_all_button_labels(context._list_markup)
-    assert label1 in all_labels, f"Expected button '{label1}', got buttons: {all_labels}"
-    assert label2 in all_labels, f"Expected button '{label2}', got buttons: {all_labels}"
+    all_labels = set(_get_all_button_labels(context._list_markup))
+    expected = {label1, label2}
+    assert all_labels == expected, f"Expected exactly buttons {expected}, got {all_labels}"
 
 
 @then('the bot shows a button labeled "{label}"')
 def step_button_labeled(context: Any, label: str) -> None:
-    labels = _get_all_button_labels(context._list_markup)
-    assert label in labels, f"Expected button '{label}', got buttons: {labels}"
+    all_labels = _get_all_button_labels(context._list_markup)
+    assert label in all_labels, f"Expected button '{label}', got buttons: {all_labels}"
 
 
 @then('the bot does not show a button labeled "{label}"')
 def step_no_button_labeled(context: Any, label: str) -> None:
     labels = _get_all_button_labels(context._list_markup)
     assert label not in labels, f"Button '{label}' should not be present, got buttons: {labels}"
+
+
+@then('the bot shows exactly these buttons: "{labels}"')
+def step_buttons_exact_set(context: Any, labels: str) -> None:
+    all_labels = set(_get_all_button_labels(context._list_markup))
+    expected = set(label.strip() for label in labels.split(","))
+    assert all_labels == expected, f"Expected exactly buttons {expected}, got {all_labels}"
 
 
 @then("the message explains that only months with expenses are shown")
@@ -207,10 +214,9 @@ def step_no_buttons(context: Any) -> None:
 
 @then('the bot shows buttons labeled "{l1}", "{l2}", and "{l3}"')
 def step_buttons_labeled_three(context: Any, l1: str, l2: str, l3: str) -> None:
-    all_labels = _get_all_button_labels(context._list_markup)
-    assert l1 in all_labels, f"Expected '{l1}', got: {all_labels}"
-    assert l2 in all_labels, f"Expected '{l2}', got: {all_labels}"
-    assert l3 in all_labels, f"Expected '{l3}', got: {all_labels}"
+    all_labels = set(_get_all_button_labels(context._list_markup))
+    expected = {l1, l2, l3}
+    assert all_labels == expected, f"Expected exactly buttons {expected}, got {all_labels}"
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
