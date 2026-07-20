@@ -60,7 +60,11 @@ class TestExpenseRepositoryPortProtocol:
 
             def get_total_by_user_and_year(self, user_id: int, year: int) -> Decimal:
                 return sum(
-                    (e.amount for e in self._store.values() if e.user_id == user_id and e.date.year == year),
+                    (
+                        e.amount
+                        for e in self._store.values()
+                        if e.user_id == user_id and e.date.year == year
+                    ),
                     Decimal("0"),
                 )
 
