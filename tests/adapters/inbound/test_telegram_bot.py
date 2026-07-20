@@ -866,6 +866,47 @@ class TestListHandler:
         assert "no" in reply_text.lower()
         assert "reply_markup" not in update.effective_message.reply_text.call_args[1]
 
+    def test_previous_year_only_shows_that_year(self) -> None:
+        """When user has expenses only in previous year, shows that year's data."""
+        repo = MagicMock()
+        repo.get_months_with_expenses.side_effect = [
+            set(),  # 2026 — no data
+            {12},  # 2025 — only December
+        ]
+        repo.get_by_user_and_month.return_value = [
+            Expense(
+                id="e1",
+                amount=Decimal("15.00"),
+                currency="EUR",
+                merchant="Old Shop",
+                date=date(2025, 12, 1),
+                category="shopping",
+                user_id=12345,
+                receipt_photo_id=None,
+                created_at=datetime(2025, 12, 1, 10, 0, 0),
+            ),
+        ]
+
+        from expense_report.adapters.inbound.telegram_bot import _make_list_handler
+
+        handler = _make_list_handler(repo)
+        update = _make_update()
+        context = MagicMock()
+
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
+            asyncio.run(handler(update, context))
+
+        # Should query 2025-12, not current 2026-07
+        repo.get_by_user_and_month.assert_called_once_with(12345, 2025, 12)
+
+        markup = update.effective_message.reply_text.call_args[1]["reply_markup"]
+        keyboard = markup.inline_keyboard
+        year_buttons = [btn.text for btn in keyboard[0]]
+        assert year_buttons == ["2025"]
+        month_buttons = [btn.text for btn in keyboard[1]]
+        assert month_buttons == ["Dec"]
+
     def test_multi_user_isolation(self) -> None:
         """User 99999 sees a different user_id passed to repo."""
         repo = MagicMock()

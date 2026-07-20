@@ -168,11 +168,19 @@ def _make_list_handler(repository: ExpenseRepositoryPort):
             )
             return
 
-        # Show current month's expenses
-        expenses = repository.get_by_user_and_month(user_id, current_year, current_month)
+        # If current year has no data but previous years do, use the most recent year
+        if current_year not in year_months:
+            active_year = max(year_months.keys())
+            active_month = max(year_months[active_year])
+        else:
+            active_year = current_year
+            active_month = current_month
 
-        text = _format_month_view(expenses, current_year, current_month)
-        keyboard = _build_list_keyboard(current_year, current_month, year_months)
+        # Show the active month's expenses
+        expenses = repository.get_by_user_and_month(user_id, active_year, active_month)
+
+        text = _format_month_view(expenses, active_year, active_month)
+        keyboard = _build_list_keyboard(active_year, active_month, year_months)
 
         await update.effective_message.reply_text(text, reply_markup=keyboard)
 
