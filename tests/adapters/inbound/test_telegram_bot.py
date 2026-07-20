@@ -1055,7 +1055,17 @@ class TestListCallbackHandler:
         edit_call = update.callback_query.edit_message_text.call_args[1]
         assert "No expenses" in edit_call["text"]
 
-    def test_malformed_callback_data_does_not_crash(self) -> None:
+    @pytest.mark.parametrize(
+        "bad_data",
+        [
+            "garbage",
+            "year:not-a-year",
+            "month:2026",
+            "month:foo:3",
+            "year:",
+        ],
+    )
+    def test_malformed_callback_data_does_not_crash(self, bad_data: str) -> None:
         """Invalid callback_data is logged and ignored without exception."""
         repo = MagicMock()
         repo.get_months_with_expenses.return_value = set()
@@ -1063,7 +1073,7 @@ class TestListCallbackHandler:
         from expense_report.adapters.inbound.telegram_bot import _make_list_callback_handler
 
         handler = _make_list_callback_handler(repo)
-        update = _make_callback_update(callback_data="garbage")
+        update = _make_callback_update(callback_data=bad_data)
         context = MagicMock()
 
         with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:

@@ -204,49 +204,45 @@ def _make_list_callback_handler(repository: ExpenseRepositoryPort):
         user_id = query.from_user.id
         now = datetime.now()
 
-        # Discover which years have expenses for the keyboard
-        # Always include current year, previous year, AND the callback's year
-        # so old messages don't lose state after calendar year changes
-        years_to_check = {now.year, now.year - 1}
+        try:
+            # Parse callback data first — everything that touches data.split goes here
+            if data.startswith("year:"):
+                year = int(data.split(":")[1])
+                years_to_check = {now.year, now.year - 1, year}
+            elif data.startswith("month:"):
+                parts = data.split(":")
+                if len(parts) != 3:
+                    logger.warning("Invalid month callback_data from user %s: %r", user_id, data)
+                    return
+                year = int(parts[1])
+                month = int(parts[2])
+                years_to_check = {now.year, now.year - 1, year}
+            else:
+                return
+        except (ValueError, IndexError):
+            logger.warning("Invalid callback_data from user %s: %r", user_id, data)
+            return
 
-        if data.startswith("year:"):
-            year = int(data.split(":")[1])
-            years_to_check.add(year)
-        elif data.startswith("month:"):
-            year = int(data.split(":")[1])
-            years_to_check.add(year)
-
+        # Rebuild year_months for keyboard
         year_months: dict[int, set[int]] = {}
         for y in years_to_check:
             months = repository.get_months_with_expenses(user_id, y)
             if months:
                 year_months[y] = months
 
-        try:
-            if data.startswith("year:"):
-                year = int(data.split(":")[1])
-                logger.info("User %s selected year %s in /list", user_id, year)
+        if data.startswith("year:"):
+            logger.info("User %s selected year %s in /list", user_id, year)
+            total = repository.get_total_by_user_and_year(user_id, year)
+            text = _format_year_view(total, year)
+            keyboard = _build_list_keyboard(year, None, year_months)
+            await query.edit_message_text(text=text, reply_markup=keyboard)
 
-                total = repository.get_total_by_user_and_year(user_id, year)
-                text = _format_year_view(total, year)
-                keyboard = _build_list_keyboard(year, None, year_months)
-
-                await query.edit_message_text(text=text, reply_markup=keyboard)
-
-            elif data.startswith("month:"):
-                _, year_str, month_str = data.split(":")
-                year = int(year_str)
-                month = int(month_str)
-                logger.info("User %s selected month %s/%s in /list", user_id, year, month)
-
-                expenses = repository.get_by_user_and_month(user_id, year, month)
-                text = _format_month_view(expenses, year, month)
-                keyboard = _build_list_keyboard(year, month, year_months)
-
-                await query.edit_message_text(text=text, reply_markup=keyboard)
-        except (ValueError, IndexError):
-            logger.warning("Invalid callback_data from user %s: %r", user_id, data)
-            return
+        elif data.startswith("month:"):
+            logger.info("User %s selected month %s/%s in /list", user_id, year, month)
+            expenses = repository.get_by_user_and_month(user_id, year, month)
+            text = _format_month_view(expenses, year, month)
+            keyboard = _build_list_keyboard(year, month, year_months)
+            await query.edit_message_text(text=text, reply_markup=keyboard)
 
     return handler
 
