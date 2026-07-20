@@ -499,3 +499,30 @@ class TestGetTotalByUserAndYear:
         )
 
         assert repo.get_total_by_user_and_year(123, 2026) == Decimal("100.00")
+
+    def test_handles_floating_point_sensitive_values(self) -> None:
+        """Sums like 0.10 + 0.20 return exact 0.30, not floating-point error."""
+        from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
+
+        repo = SqliteExpenseRepository(":memory:")
+
+        for expense_date, amount in [
+            ("2026-07-01", "0.10"),
+            ("2026-07-02", "0.20"),
+        ]:
+            repo.save(
+                Expense(
+                    id=None,
+                    amount=Decimal(amount),
+                    currency="EUR",
+                    merchant="Shop",
+                    date=date.fromisoformat(expense_date),
+                    category=None,
+                    user_id=12345,
+                    receipt_photo_id=None,
+                    created_at=datetime.fromisoformat(f"{expense_date}T12:00:00"),
+                )
+            )
+
+        result = repo.get_total_by_user_and_year(12345, 2026)
+        assert result == Decimal("0.30")

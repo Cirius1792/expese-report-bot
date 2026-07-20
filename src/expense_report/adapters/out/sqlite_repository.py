@@ -149,13 +149,15 @@ class SqliteExpenseRepository:
     def get_total_by_user_and_year(self, user_id: int, year: int) -> Decimal:
         """Return the sum of all expense amounts for a user in a year."""
         prefix = f"{year:04d}-"
-        row = self._conn.execute(
-            "SELECT COALESCE(SUM(CAST(amount AS REAL)), 0.0) AS total FROM expenses"
-            " WHERE user_id = ? AND date LIKE ?",
+        rows = self._conn.execute(
+            "SELECT amount FROM expenses WHERE user_id = ? AND date LIKE ?",
             (user_id, f"{prefix}%"),
-        ).fetchone()
+        ).fetchall()
 
-        total = Decimal(str(row["total"]))
+        total = sum(
+            (Decimal(row["amount"]) for row in rows),
+            start=Decimal("0.00"),
+        )
         logger.info(
             "Total for user %s in %04d: %s",
             user_id,
