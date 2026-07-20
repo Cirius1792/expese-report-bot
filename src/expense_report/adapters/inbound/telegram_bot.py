@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from decimal import Decimal
 from io import BytesIO
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -34,6 +35,86 @@ Send me a photo of a receipt, or describe your expense like "lunch 15 eur".
 Commands:
 /start - Show this message
 /report - Get your monthly expense report as CSV"""
+
+_MONTH_NAMES: dict[int, str] = {
+    1: "Jan",
+    2: "Feb",
+    3: "Mar",
+    4: "Apr",
+    5: "May",
+    6: "Jun",
+    7: "Jul",
+    8: "Aug",
+    9: "Sep",
+    10: "Oct",
+    11: "Nov",
+    12: "Dec",
+}
+
+
+def _format_month_view(expenses: list[Expense], year: int, month: int) -> str:
+    """Format a list of expenses as a month-view message text."""
+    month_name = datetime(year, month, 1).strftime("%B")
+
+    if not expenses:
+        return f"📊 {month_name} {year}\n\nNo expenses recorded for this month."
+
+    lines = [f"📊 {month_name} {year}\n"]
+    total = Decimal("0.00")
+
+    for e in expenses:
+        lines.append(
+            f"{e.date}  {e.merchant:<20} {e.amount:>8.2f} {e.currency:<4} {e.category or ''}"
+        )
+        total += e.amount
+
+    lines.append(f"\nTotal: {total:.2f} ({len(expenses)} expenses)")
+    lines.append("\nOnly months with recorded expenses are shown below.")
+
+    return "\n".join(lines)
+
+
+def _format_year_view(total: Decimal, year: int) -> str:
+    """Format a year aggregate as a message text."""
+    return f"📊 {year} Summary\n\nTotal: {total:.2f} EUR\n\nTap a month below for details."
+
+
+def _build_list_keyboard(
+    active_year: int,
+    active_month: int | None,
+    year_months: dict[int, set[int]],
+) -> InlineKeyboardMarkup:
+    """Build an inline keyboard with year and month buttons.
+
+    Args:
+        active_year: The currently selected year.
+        active_month: The currently selected month, or None for year-view.
+        year_months: Mapping of year -> set of month numbers with expenses.
+
+    Returns:
+        An InlineKeyboardMarkup with year row and month row.
+    """
+    keyboard: list[list[InlineKeyboardButton]] = []
+
+    # Year row — descending order
+    years = sorted(year_months.keys(), reverse=True)
+    if years:
+        year_buttons = [InlineKeyboardButton(str(y), callback_data=f"year:{y}") for y in years]
+        keyboard.append(year_buttons)
+
+    # Month row — chronological order, only months with expenses
+    months = sorted(year_months.get(active_year, set()))
+    if months:
+        month_buttons = [
+            InlineKeyboardButton(
+                _MONTH_NAMES[m],
+                callback_data=f"month:{active_year}:{m}",
+            )
+            for m in months
+        ]
+        keyboard.append(month_buttons)
+
+    return InlineKeyboardMarkup(keyboard)
 
 
 def register_handlers(

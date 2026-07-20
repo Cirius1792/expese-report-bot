@@ -79,6 +79,23 @@ mock_telegram.File = _MagicMock()
 mock_telegram.PhotoSize = _MagicMock()
 mock_telegram.helpers = _MagicMock()
 
+
+# InlineKeyboardButton — simple dataclass for test assertions
+class _BDDFakeInlineKeyboardButton:
+    def __init__(self, text: str, callback_data: str):
+        self.text = text
+        self.callback_data = callback_data
+
+
+# InlineKeyboardMarkup — stores the keyboard for test inspection
+class _BDDFakeInlineKeyboardMarkup:
+    def __init__(self, inline_keyboard: list):
+        self.inline_keyboard = inline_keyboard
+
+
+mock_telegram.InlineKeyboardButton = _BDDFakeInlineKeyboardButton
+mock_telegram.InlineKeyboardMarkup = _BDDFakeInlineKeyboardMarkup
+
 mock_ext = _MagicMock()
 mock_telegram.ext = mock_ext
 mock_ext.Application = _MagicMock()

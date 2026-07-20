@@ -107,6 +107,23 @@ mock_telegram.PhotoSize = mock_photo_size_cls
 mock_helpers = MagicMock()
 mock_telegram.helpers = mock_helpers
 
+
+# InlineKeyboardButton — simple dataclass for test assertions
+class _FakeInlineKeyboardButton:
+    def __init__(self, text: str, callback_data: str):
+        self.text = text
+        self.callback_data = callback_data
+
+
+# InlineKeyboardMarkup — stores the keyboard for test inspection
+class _FakeInlineKeyboardMarkup:
+    def __init__(self, inline_keyboard: list):
+        self.inline_keyboard = inline_keyboard
+
+
+mock_telegram.InlineKeyboardButton = _FakeInlineKeyboardButton
+mock_telegram.InlineKeyboardMarkup = _FakeInlineKeyboardMarkup
+
 # telegram.ext
 mock_ext = MagicMock()
 mock_telegram.ext = mock_ext
