@@ -968,10 +968,10 @@ class TestListCallbackHandler:
                 created_at=datetime(2026, 3, 5, 10, 0, 0),
             ),
         ]
-        repo.get_months_with_expenses.side_effect = [
-            {7, 3},  # 2026
-            set(),  # 2025
-        ]
+        repo.get_months_with_expenses.side_effect = lambda uid, year: {
+            2026: {7, 3},
+            2025: set(),
+        }.get(year, set())
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_callback_handler
 
@@ -1005,10 +1005,10 @@ class TestListCallbackHandler:
         """Tapping a year button shows year aggregate."""
         repo = MagicMock()
         repo.get_total_by_user_and_year.return_value = Decimal("15.00")
-        repo.get_months_with_expenses.side_effect = [
-            {7, 3},  # 2026
-            {12},  # 2025
-        ]
+        repo.get_months_with_expenses.side_effect = lambda uid, year: {
+            2026: {7, 3},
+            2025: {12},
+        }.get(year, set())
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_callback_handler
 
@@ -1037,10 +1037,10 @@ class TestListCallbackHandler:
         """Month with no expense rows shows informative text."""
         repo = MagicMock()
         repo.get_by_user_and_month.return_value = []
-        repo.get_months_with_expenses.side_effect = [
-            {7},
-            set(),
-        ]
+        repo.get_months_with_expenses.side_effect = lambda uid, year: {
+            2026: {7},
+            2025: set(),
+        }.get(year, set())
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_callback_handler
 
@@ -1054,6 +1054,26 @@ class TestListCallbackHandler:
 
         edit_call = update.callback_query.edit_message_text.call_args[1]
         assert "No expenses" in edit_call["text"]
+
+    def test_malformed_callback_data_does_not_crash(self) -> None:
+        """Invalid callback_data is logged and ignored without exception."""
+        repo = MagicMock()
+        repo.get_months_with_expenses.return_value = set()
+
+        from expense_report.adapters.inbound.telegram_bot import _make_list_callback_handler
+
+        handler = _make_list_callback_handler(repo)
+        update = _make_callback_update(callback_data="garbage")
+        context = MagicMock()
+
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
+            # Should not raise
+            asyncio.run(handler(update, context))
+
+        update.callback_query.answer.assert_awaited_once()
+        # edit_message_text should NOT be called for invalid data
+        update.callback_query.edit_message_text.assert_not_awaited()
 
 
 class TestMainFunction:
