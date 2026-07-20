@@ -358,8 +358,8 @@ class TestReportHandler:
 class TestRegisterHandlers:
     """Tests that register_handlers wires up the Application correctly."""
 
-    def test_registers_all_four_handlers(self) -> None:
-        """register_handlers adds 4 handlers to the Application.
+    def test_registers_all_handlers(self) -> None:
+        """register_handlers adds 6 handlers to the Application.
 
         In the mocked environment, all handler objects are MagicMock
         instances. We verify the count and that the registration
@@ -376,10 +376,10 @@ class TestRegisterHandlers:
 
         register_handlers(app, adapter, repo, store)
 
-        # Verify 4 handlers were registered
-        assert app.add_handler.call_count == 4
-        # Expected: CommandHandler(start), CommandHandler(report),
-        #           MessageHandler(photo), MessageHandler(text)
+        # Verify 6 handlers were registered
+        assert app.add_handler.call_count == 6
+        # Expected: CommandHandler(start), CommandHandler(report), CommandHandler(list),
+        #           CallbackQueryHandler, MessageHandler(photo), MessageHandler(text)
 
 
 class TestMissingFields:

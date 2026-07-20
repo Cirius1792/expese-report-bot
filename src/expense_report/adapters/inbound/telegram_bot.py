@@ -14,6 +14,7 @@ from io import BytesIO
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -34,7 +35,8 @@ Send me a photo of a receipt, or describe your expense like "lunch 15 eur".
 
 Commands:
 /start - Show this message
-/report - Get your monthly expense report as CSV"""
+/report - Get your monthly expense report as CSV
+/list - Browse your expenses by month"""
 
 _MONTH_NAMES: dict[int, str] = {
     1: "Jan",
@@ -256,6 +258,13 @@ def register_handlers(
     """Register all bot command and message handlers."""
     app.add_handler(CommandHandler("start", _handle_start))
     app.add_handler(CommandHandler("report", _make_report_handler(repository)))
+    app.add_handler(CommandHandler("list", _make_list_handler(repository)))
+    app.add_handler(
+        CallbackQueryHandler(
+            _make_list_callback_handler(repository),
+            pattern=r"^(year|month):",
+        )
+    )
     app.add_handler(
         MessageHandler(
             filters.PHOTO,
