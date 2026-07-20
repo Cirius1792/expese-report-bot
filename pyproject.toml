@@ -1,6 +1,6 @@
 [project]
 name = "expense-report-bot"
-version = "0.2.0"
+version = "0.3.0"
 description = "A Telegram bot that extracts structured expense data from receipt photos"
 authors = [
     { name = "Ciro Lucio Tecce", email = "cirolucio.tecce@gmail.com" }
