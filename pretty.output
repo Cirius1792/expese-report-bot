@@ -1,3 +1,29 @@
+Feature: Telegram user authorization # features/authorization.feature:1
+  As the bot owner
+  I want only whitelisted Telegram users to interact with the bot
+  So that unauthorized users cannot use the expense-report bot
+  Feature: Telegram user authorization  # features/authorization.feature:1
+
+  @story-11
+  Scenario: Authorized user can send a free-text expense message                                                        # features/authorization.feature:12
+    Given the bot is running                                                                                            # features/steps/common_steps.py:51
+    And the extraction service is working                                                                               # features/steps/common_steps.py:31
+    And the database is empty                                                                                           # features/steps/common_steps.py:37
+    Given the bot authorization whitelist contains my Telegram user ID                                                  # features/steps/authorization_steps.py:26
+    When I send a free-text expense message "coffee 3.50 eur at Central Cafe 2026-07-12" through the authorization gate # features/steps/authorization_steps.py:38
+    Then the bot should send a reply                                                                                    # features/steps/authorization_steps.py:78
+
+  @story-11
+  Scenario: Unauthorized user is silently ignored and logged                                                            # features/authorization.feature:18
+    Given the bot is running                                                                                            # features/steps/common_steps.py:51
+    And the extraction service is working                                                                               # features/steps/common_steps.py:31
+    And the database is empty                                                                                           # features/steps/common_steps.py:37
+    Given the bot authorization whitelist does not contain my Telegram user ID                                          # features/steps/authorization_steps.py:32
+    When I send a free-text expense message "coffee 3.50 eur at Central Cafe 2026-07-12" through the authorization gate # features/steps/authorization_steps.py:38
+    Then the bot should not send any reply                                                                              # features/steps/authorization_steps.py:84
+    And the unauthorized attempts log should contain my Telegram user ID                                                # features/steps/authorization_steps.py:90
+    And the unauthorized attempts log should contain an ISO-8601 UTC timestamp                                          # features/steps/authorization_steps.py:96
+
 Feature: CLI Expense Extraction and Storage # features/cli_extraction.feature:1
   As a developer
   I want to extract structured expense data from receipt images and free text via CLI
