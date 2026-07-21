@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from decimal import Decimal
+from html import escape as _html_escape
 from io import BytesIO
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -264,6 +265,54 @@ def _make_list_callback_handler(repository: ExpenseRepositoryPort):
     return handler
 
 
+def _make_delete_callback_handler(repository: ExpenseRepositoryPort):
+    """Factory: create a callback handler for delete button presses.
+
+    Handles callback data of the form 'delete:<expense_id>'.
+    """
+
+    async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None:
+            logger.debug("Skipping delete callback with no CallbackQuery")
+            return
+
+        await query.answer()
+        data = query.data
+        if data is None or not data.startswith("delete:"):
+            return
+
+        user_id = query.from_user.id
+        try:
+            expense_id = int(data.split(":", 1)[1])
+        except (ValueError, IndexError):
+            logger.warning("Invalid delete callback_data from user %s: %r", user_id, data)
+            return
+
+        logger.info("User %s tapped delete for expense #%s", user_id, expense_id)
+
+        deleted = repository.delete_by_id(user_id, expense_id)
+
+        if deleted is None:
+            await query.answer("Expense not found.")
+            return
+
+        # Get original message text and wrap in strikethrough
+        original_text = ""
+        if query.message is not None:
+            original_text = query.message.text or query.message.caption or ""
+
+        escaped_text = _html_escape(original_text)
+        new_text = f"<s>{escaped_text}</s>\n\n🗑️ Deleted."
+
+        await query.edit_message_text(
+            text=new_text,
+            parse_mode="HTML",
+        )
+
+    return handler
+
+
 def _make_delete_handler(repository: ExpenseRepositoryPort):
     """Factory: create a /delete command handler bound to the given repository."""
 
@@ -323,6 +372,12 @@ def register_handlers(
         CallbackQueryHandler(
             _make_list_callback_handler(repository),
             pattern=r"^(year|month):",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            _make_delete_callback_handler(repository),
+            pattern=r"^delete:",
         )
     )
     app.add_handler(

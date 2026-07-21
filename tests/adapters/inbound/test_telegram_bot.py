@@ -377,9 +377,11 @@ class TestRegisterHandlers:
         register_handlers(app, adapter, repo, store)
 
         # Verify 7 handlers were registered
-        assert app.add_handler.call_count == 7
+        assert app.add_handler.call_count == 8
         # Expected: CommandHandler(start), CommandHandler(report), CommandHandler(list),
-        #           CallbackQueryHandler, MessageHandler(photo), MessageHandler(text)
+        #           CommandHandler(delete), CallbackQueryHandler(list),
+        #           CallbackQueryHandler(delete), MessageHandler(photo),
+        #           MessageHandler(text)
 
 
 class TestMissingFields:
@@ -1126,6 +1128,90 @@ class TestListCallbackHandler:
         update.callback_query.answer.assert_awaited_once()
         # edit_message_text should NOT be called for invalid data
         update.callback_query.edit_message_text.assert_not_awaited()
+
+
+class TestDeleteCallbackHandler:
+    """Tests for delete button callback handler."""
+
+    def test_delete_button_edits_message_with_strikethrough(self) -> None:
+        """Delete button callback edits the original message with strikethrough."""
+        from expense_report.adapters.inbound.telegram_bot import _make_delete_callback_handler
+
+        mock_repo = MagicMock()
+        deleted_expense = Expense(
+            id=1,
+            amount=Decimal("3.50"),
+            currency="EUR",
+            merchant="Central Cafe",
+            date=date(2026, 7, 12),
+            category="food",
+            user_id=12345,
+            receipt_photo_id=None,
+            created_at=datetime(2026, 7, 12, 12, 0, 0),
+        )
+        mock_repo.delete_by_id.return_value = deleted_expense
+
+        handler = _make_delete_callback_handler(mock_repo)
+        update = MagicMock()
+        query = MagicMock()
+        query.data = "delete:1"
+        query.from_user = MagicMock()
+        query.from_user.id = 12345
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        query.edit_message_caption = AsyncMock()
+        query.edit_message_reply_markup = AsyncMock()
+        query.message = MagicMock()
+        query.message.text = "Original confirmation text with expense details"
+        query.message.caption = None
+        update.callback_query = query
+        context = MagicMock()
+
+        asyncio.run(handler(update, context))
+
+        # Verify callback was answered
+        query.answer.assert_awaited_once()
+
+        # Verify message was edited with strikethrough + deleted note
+        call_kwargs = query.edit_message_text.call_args[1]
+        edited_text = call_kwargs["text"]
+        assert "<s>" in edited_text
+        assert "</s>" in edited_text
+        assert "🗑️ Deleted." in edited_text
+        assert call_kwargs["parse_mode"] == "HTML"
+        # Verify delete button is removed (no reply_markup or empty)
+        assert call_kwargs.get("reply_markup") is None or (
+            hasattr(call_kwargs["reply_markup"], "inline_keyboard")
+            and len(call_kwargs["reply_markup"].inline_keyboard) == 0
+        )
+
+    def test_delete_callback_not_found_answers_callback_only(self) -> None:
+        """When expense not found, answers callback and does NOT edit message."""
+        from expense_report.adapters.inbound.telegram_bot import _make_delete_callback_handler
+
+        mock_repo = MagicMock()
+        mock_repo.delete_by_id.return_value = None
+
+        handler = _make_delete_callback_handler(mock_repo)
+        update = MagicMock()
+        query = MagicMock()
+        query.data = "delete:99"
+        query.from_user = MagicMock()
+        query.from_user.id = 12345
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        query.message = MagicMock()
+        query.message.text = "Some text"
+        update.callback_query = query
+        context = MagicMock()
+
+        asyncio.run(handler(update, context))
+
+        # Should answer callback with not-found message (called twice:
+        # once at top, once with not-found text)
+        query.answer.assert_any_call("Expense not found.")
+        # Should NOT edit the message
+        query.edit_message_text.assert_not_awaited()
 
 
 class TestDeleteHandler:
