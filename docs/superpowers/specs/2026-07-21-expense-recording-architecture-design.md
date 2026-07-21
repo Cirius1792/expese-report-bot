@@ -32,7 +32,7 @@ class ExpenseRecordingPort(Protocol):
     def record(self, command: RecordExpense) -> RecordingOutcome: ...
 ```
 
-Inbound Adapters consume this Interface. The application Implementation implements it. This clarifies ADR 0001: driven Adapters implement driven port Interfaces, while driving Adapters consume driving port Interfaces.
+Inbound Adapters consume this Interface. The application-layer `ExpenseRecordingUseCase` is its concrete Implementation. This clarifies ADR 0001: driven Adapters implement driven port Interfaces, while driving Adapters consume driving port Interfaces.
 
 ### Command
 
@@ -80,9 +80,9 @@ The completed ARCH-001 design will also need outcomes equivalent to:
 
 Those outcomes will be finalized in the later partial/Correction slice rather than speculated into the first implementation.
 
-### Application Implementation
+### Expense Recording Use Case
 
-The application Implementation depends on:
+`ExpenseRecordingUseCase` is the application-layer Implementation of `ExpenseRecordingPort`. It depends on:
 
 - `ExtractionPort` for Extraction and later Correction refinement;
 - `ExpenseRepositoryPort` for persistence;
@@ -121,13 +121,13 @@ For complete free text, both Adapters call `ExpenseRecordingPort.record()` and r
 
 ### Composition
 
-Each executable constructs the application Implementation from the existing driven Adapters and passes it to the driving Adapter.
+Each executable constructs `ExpenseRecordingUseCase` from the existing driven Adapters and passes it to the driving Adapter through `ExpenseRecordingPort`.
 
 The concrete dependency direction is:
 
 ```text
 Telegram Adapter ──┐
-                   ├──> ExpenseRecordingPort <── Application Implementation
+                   ├──> ExpenseRecordingPort <── ExpenseRecordingUseCase
 CLI Adapter ───────┘                                  │
                                                       ├──> ExtractionPort
                                                       └──> ExpenseRepositoryPort
@@ -143,14 +143,14 @@ A complete free-text message or CLI argument:
 
 1. is translated by the driving Adapter into `RecordExpense`;
 2. crosses the new driving Seam;
-3. invokes `ExtractionPort.extract(source, "text")` in the application Implementation;
+3. invokes `ExtractionPort.extract(source, "text")` in `ExpenseRecordingUseCase`;
 4. produces a complete `ExtractionResult`;
 5. is converted to an `Expense` with the existing `user_id`, `receipt_photo_id=None`, and recording-time `created_at` behavior;
 6. is saved through `ExpenseRepositoryPort`;
 7. returns `ExpenseRecorded`;
 8. is rendered by the originating Adapter exactly as before.
 
-Both Telegram and CLI use this same Implementation, proving real Leverage across two driving Adapters.
+Both Telegram and CLI use the same `ExpenseRecordingUseCase` Implementation, proving real Leverage across two driving Adapters.
 
 ### Explicitly deferred
 
@@ -222,6 +222,6 @@ The complete ARCH-001 migration must additionally retain existing photo and Corr
 
 ## Completion Boundary
 
-The first tracer slice is successful when complete free-text recording in Telegram and CLI shares one application Implementation and all existing behavior remains covered.
+The first tracer slice is successful when complete free-text recording in Telegram and CLI shares one `ExpenseRecordingUseCase` Implementation and all existing behavior remains covered.
 
 ARCH-001 itself remains in progress until Receipt-photo and Telegram Correction orchestration also move behind the driving Interface and the required evidence in the architecture tracker is satisfied.
