@@ -26,7 +26,7 @@ class TestGenerateCsv:
     def test_single_expense(self) -> None:
         """A single expense produces one data row."""
         expense = Expense(
-            id="test-1",
+            id=1,
             amount=Decimal("42.50"),
             currency="EUR",
             merchant="Supermarket",
@@ -44,7 +44,7 @@ class TestGenerateCsv:
     def test_category_none_uses_empty_string(self) -> None:
         """When category is None, CSV shows an empty field."""
         expense = Expense(
-            id="test-2",
+            id=2,
             amount=Decimal("15.00"),
             currency="USD",
             merchant="Coffee Shop",
@@ -64,7 +64,7 @@ class TestGenerateCsv:
         """Multiple expenses produce one row each."""
         expenses = [
             Expense(
-                id="a",
+                id=1,
                 amount=Decimal("10.00"),
                 currency="EUR",
                 merchant="Shop A",
@@ -75,7 +75,7 @@ class TestGenerateCsv:
                 created_at=datetime(2026, 7, 1, 10, 0, 0),
             ),
             Expense(
-                id="b",
+                id=2,
                 amount=Decimal("20.00"),
                 currency="EUR",
                 merchant="Shop B",
@@ -86,7 +86,7 @@ class TestGenerateCsv:
                 created_at=datetime(2026, 7, 2, 11, 0, 0),
             ),
             Expense(
-                id="c",
+                id=3,
                 amount=Decimal("30.00"),
                 currency="USD",
                 merchant="Shop C",
@@ -107,7 +107,7 @@ class TestGenerateCsv:
     def test_decimal_formatting_two_places(self) -> None:
         """Decimal amounts are formatted with exactly 2 decimal places."""
         expense = Expense(
-            id="test-3",
+            id=3,
             amount=Decimal("99.9"),
             currency="EUR",
             merchant="Store",

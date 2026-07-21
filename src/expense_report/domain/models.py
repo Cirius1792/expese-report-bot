@@ -14,7 +14,7 @@ from decimal import Decimal
 class Expense:
     """A structured record of money spent, extracted from a Receipt."""
 
-    id: str | None
+    id: int | None
     amount: Decimal
     currency: str
     merchant: str
