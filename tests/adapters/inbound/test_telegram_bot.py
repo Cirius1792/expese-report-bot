@@ -310,7 +310,7 @@ class TestReportHandler:
         repo = MagicMock()
         repo.get_by_user_and_month.return_value = [
             Expense(
-                id="e1",
+                id=1,
                 amount=Decimal("10.00"),
                 currency="EUR",
                 merchant="Shop A",
@@ -321,7 +321,7 @@ class TestReportHandler:
                 created_at=datetime(2026, 7, 1, 10, 0, 0),
             ),
             Expense(
-                id="e2",
+                id=2,
                 amount=Decimal("20.50"),
                 currency="EUR",
                 merchant="Shop B",
@@ -766,7 +766,7 @@ class TestListHandler:
         repo.get_months_with_expenses.return_value = {7, 3}
         repo.get_by_user_and_month.return_value = [
             Expense(
-                id="e1",
+                id=1,
                 amount=Decimal("42.50"),
                 currency="EUR",
                 merchant="Supermarket",
@@ -777,7 +777,7 @@ class TestListHandler:
                 created_at=datetime(2026, 7, 10, 10, 0, 0),
             ),
             Expense(
-                id="e2",
+                id=2,
                 amount=Decimal("12.50"),
                 currency="EUR",
                 merchant="Coffee Shop",
@@ -823,7 +823,7 @@ class TestListHandler:
         ]
         repo.get_by_user_and_month.return_value = [
             Expense(
-                id="e1",
+                id=1,
                 amount=Decimal("42.50"),
                 currency="EUR",
                 merchant="Shop",
@@ -868,7 +868,7 @@ class TestListHandler:
         ]
         repo.get_by_user_and_month.return_value = [
             Expense(
-                id="e1",
+                id=2,
                 amount=Decimal("10.00"),
                 currency="EUR",
                 merchant="Shop",
@@ -927,7 +927,7 @@ class TestListHandler:
         ]
         repo.get_by_user_and_month.return_value = [
             Expense(
-                id="e1",
+                id=3,
                 amount=Decimal("15.00"),
                 currency="EUR",
                 merchant="Old Shop",
@@ -1031,7 +1031,7 @@ class TestListCallbackHandler:
         repo = MagicMock()
         repo.get_by_user_and_month.return_value = [
             Expense(
-                id="e1",
+                id=4,
                 amount=Decimal("30.00"),
                 currency="EUR",
                 merchant="Book Store",
@@ -1081,7 +1081,7 @@ class TestListCallbackHandler:
         # get_by_user_and_month returns expenses for each month
         repo.get_by_user_and_month.return_value = [
             Expense(
-                id="e1",
+                id=5,
                 amount=Decimal("10.00"),
                 currency="EUR",
                 merchant="Old Shop",
@@ -1092,7 +1092,7 @@ class TestListCallbackHandler:
                 created_at=datetime(2025, 12, 1, 10, 0, 0),
             ),
             Expense(
-                id="e2",
+                id=6,
                 amount=Decimal("5.00"),
                 currency="EUR",
                 merchant="Another",

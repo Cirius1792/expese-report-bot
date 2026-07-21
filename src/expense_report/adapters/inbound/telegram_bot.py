@@ -300,7 +300,11 @@ def _make_delete_callback_handler(repository: ExpenseRepositoryPort):
         # Get original message text and wrap in strikethrough
         original_text = ""
         if query.message is not None:
-            original_text = query.message.text or query.message.caption or ""
+            original_text = (
+                getattr(query.message, "text", None)
+                or getattr(query.message, "caption", None)
+                or ""
+            )
 
         escaped_text = _html_escape(original_text)
         new_text = f"<s>{escaped_text}</s>\n\n🗑️ Deleted."

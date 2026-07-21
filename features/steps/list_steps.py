@@ -25,8 +25,9 @@ def step_seed_expenses_from_table(context: Any) -> None:
 
     for row in context.table:
         user_id = int(row.get("user_id", context.user_id))
+        id_val = row.get("id")
         expense = Expense(
-            id=None,
+            id=int(id_val) if id_val else None,
             amount=Decimal(row["amount"]),
             currency=row["currency"],
             merchant=row["merchant"],
@@ -196,7 +197,18 @@ def step_no_button_labeled(context: Any, label: str) -> None:
 
 @then('the bot shows exactly these buttons: "{labels}"')
 def step_buttons_exact_set(context: Any, labels: str) -> None:
-    all_labels = _get_all_button_labels(context._list_markup)
+    """Check exactly which buttons are shown.
+
+    Works for both /list (context._list_markup) and save confirmations
+    (last telegram update's reply_markup).
+    """
+    # Try list markup first, then fall back to last reply markup
+    markup = getattr(context, "_list_markup", None)
+    if markup is None and context.telegram_updates:
+        update = context.telegram_updates[-1]
+        if update.effective_message.reply_text.call_count > 0:
+            markup = update.effective_message.reply_text.call_args[1].get("reply_markup")
+    all_labels = _get_all_button_labels(markup)
     expected = [label.strip() for label in labels.split(",")]
     assert Counter(all_labels) == Counter(expected), (
         f"Expected exactly buttons {expected}, got {all_labels}"

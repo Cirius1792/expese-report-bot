@@ -420,6 +420,7 @@ class TestDeleteById:
         """delete_by_id removes the expense and returns the deleted data."""
         saved = self._create_expense(repo, user_id=1, d=date(2026, 7, 10), amount="42.50")
 
+        assert saved.id is not None
         result = repo.delete_by_id(user_id=1, expense_id=saved.id)
 
         assert result is not None
@@ -441,6 +442,7 @@ class TestDeleteById:
         saved = self._create_expense(repo, user_id=1, d=date(2026, 7, 10))
 
         # User 2 tries to delete user 1's expense
+        assert saved.id is not None
         result = repo.delete_by_id(user_id=2, expense_id=saved.id)
         assert result is None
 
@@ -452,6 +454,7 @@ class TestDeleteById:
     ) -> None:
         """delete_by_id succeeds when user_id matches the owner."""
         saved = self._create_expense(repo, user_id=42, d=date(2026, 7, 10))
+        assert saved.id is not None
         result = repo.delete_by_id(user_id=42, expense_id=saved.id)
         assert result is not None
         assert repo.get_by_id(saved.id) is None
