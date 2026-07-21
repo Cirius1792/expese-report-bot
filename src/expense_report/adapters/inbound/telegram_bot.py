@@ -24,7 +24,14 @@ from telegram.ext import (
 
 from expense_report.domain.correction_state import CorrectionStore, PendingCorrection
 from expense_report.domain.csv_generator import generate_csv
-from expense_report.domain.models import Expense
+from expense_report.domain.models import Expense, ExtractionResult
+from expense_report.ports.expense_recording import (
+    ExpenseRecorded,
+    ExpenseRecordingPort,
+    ExtractionIncomplete,
+    RecordExpense,
+    RecordingMode,
+)
 from expense_report.ports.extraction import ExtractionPort
 from expense_report.ports.repository import ExpenseRepositoryPort
 
@@ -363,6 +370,7 @@ def _make_delete_handler(repository: ExpenseRepositoryPort):
 
 def register_handlers(
     app: Application,
+    expense_recording: ExpenseRecordingPort,
     extraction_adapter: ExtractionPort,
     repository: ExpenseRepositoryPort,
     correction_store: CorrectionStore,
@@ -393,7 +401,7 @@ def register_handlers(
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
-            _make_text_handler(extraction_adapter, repository, correction_store),
+            _make_text_handler(expense_recording, extraction_adapter, repository, correction_store),
         )
     )
 
@@ -498,6 +506,7 @@ def _make_photo_handler(
 
 
 def _make_text_handler(
+    expense_recording: ExpenseRecordingPort,
     extraction_adapter: ExtractionPort,
     repository: ExpenseRepositoryPort,
     correction_store: CorrectionStore,
@@ -536,9 +545,18 @@ def _make_text_handler(
 
         # No pending correction — treat as new text expense
         logger.info("Text received from user %s", user_id)
-        result = extraction_adapter.extract(text, "text")
+        outcome = expense_recording.record(
+            RecordExpense(
+                user_id=user_id,
+                source=text,
+                source_type="text",
+                mode=RecordingMode.CONVERSATIONAL,
+                receipt_photo_id=None,
+            )
+        )
 
-        if not result.is_complete:
+        if isinstance(outcome, ExtractionIncomplete):
+            result = outcome.extraction
             missing = _missing_fields(result)
             logger.info(
                 "Partial extraction for user %s text: missing %s",
@@ -549,17 +567,38 @@ def _make_text_handler(
                 user_id,
                 PendingCorrection(user_id=user_id, original_result=result),
             )
-        else:
-            logger.info("Complete extraction for user %s text", user_id)
+            await _reply_with_incomplete_extraction(update, result)
+            return
 
-        await _respond_to_extraction(
-            update,
-            result,
-            repository,
-            receipt_photo_id=None,
-        )
+        logger.info("Complete extraction for user %s text", user_id)
+        await _reply_with_recorded_expense(update, outcome)
 
     return handler
+
+
+async def _reply_with_recorded_expense(
+    update: Update,
+    outcome: ExpenseRecorded,
+) -> None:
+    if update.effective_message is None or update.effective_user is None:
+        return
+
+    result = outcome.extraction
+    saved_expense = outcome.expense
+    logger.info("Saved expense %s for user %s", saved_expense.id, update.effective_user.id)
+    summary = (
+        f"📄 *Extracted expense:*\n"
+        f"Expense #{saved_expense.id}\n"
+        f"Amount: {result.amount} {result.currency}\n"
+        f"Merchant: {result.merchant}\n"
+        f"Date: {result.date}\n"
+        f"Category: {result.category or '—'}\n\n"
+        f"✅ Saved."
+    )
+    keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🗑️ Delete", callback_data=f"delete:{saved_expense.id}")]]
+    )
+    await update.effective_message.reply_text(summary, reply_markup=keyboard)
 
 
 async def _respond_to_extraction(
@@ -600,25 +639,12 @@ async def _respond_to_extraction(
             user_id,
         )
 
-        summary = (
-            f"📄 *Extracted expense:*\n"
-            f"Expense #{saved_expense.id}\n"
-            f"Amount: {result.amount} {result.currency}\n"
-            f"Merchant: {result.merchant}\n"
-            f"Date: {result.date}\n"
-            f"Category: {result.category or '—'}\n\n"
-            f"✅ Saved."
+        await _reply_with_recorded_expense(
+            update,
+            ExpenseRecorded(expense=saved_expense, extraction=result),
         )
-        keyboard = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("🗑️ Delete", callback_data=f"delete:{saved_expense.id}")]]
-        )
-        await update.effective_message.reply_text(summary, reply_markup=keyboard)
     else:
-        missing = _missing_fields(result)
-        await update.effective_message.reply_text(
-            f"I extracted partial information. Please reply with the"
-            f" missing details: {', '.join(missing)}"
-        )
+        await _reply_with_incomplete_extraction(update, result)
 
 
 async def _handle_correction(
@@ -707,6 +733,19 @@ async def _handle_correction(
             f" Please provide the missing details."
         )
         await update.effective_message.reply_text(msg)
+
+
+async def _reply_with_incomplete_extraction(
+    update: Update,
+    result: ExtractionResult,
+) -> None:
+    if update.effective_message is None:
+        return
+    missing = _missing_fields(result)
+    await update.effective_message.reply_text(
+        f"I extracted partial information. Please reply with the"
+        f" missing details: {', '.join(missing)}"
+    )
 
 
 def _missing_fields(result) -> list[str]:

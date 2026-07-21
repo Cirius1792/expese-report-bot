@@ -185,7 +185,10 @@ def _execute_text_handler_with_refine(
         )
 
         adapter = DspyExtractionAdapter()
-        handler = _make_text_handler(adapter, context.repository, context.correction_store)
+        recording = MagicMock()
+        handler = _make_text_handler(
+            recording, adapter, context.repository, context.correction_store
+        )
 
         text = getattr(context, "correction_text", "correction")
         update = make_telegram_update(context, text=text)
@@ -202,6 +205,8 @@ def _execute_text_handler_with_refine(
 @when("I reply with another correction text")
 def step_reply_another_correction(context: Any) -> None:
     """Send another correction for the maxed-out scenario."""
+    from unittest.mock import MagicMock
+
     from expense_report.adapters.inbound.telegram_bot import _make_text_handler
 
     # Don't mock ChainOfThought — adapter.refine should NOT be called
@@ -210,7 +215,8 @@ def step_reply_another_correction(context: Any) -> None:
     )
 
     adapter = DspyExtractionAdapter()
-    handler = _make_text_handler(adapter, context.repository, context.correction_store)
+    recording = MagicMock()
+    handler = _make_text_handler(recording, adapter, context.repository, context.correction_store)
 
     update = make_telegram_update(context, text="another correction")
     ctx = MagicMock()
