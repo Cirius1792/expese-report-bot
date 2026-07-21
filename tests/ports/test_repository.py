@@ -18,11 +18,11 @@ class TestExpenseRepositoryPortProtocol:
 
         class FakeRepository:
             def __init__(self) -> None:
-                self._store: dict[str, Expense] = {}
+                self._store: dict[int, Expense] = {}
 
             def save(self, expense: Expense) -> Expense:
                 stored = Expense(
-                    id="stored-001" if expense.id is None else expense.id,
+                    id=1 if expense.id is None else expense.id,
                     amount=expense.amount,
                     currency=expense.currency,
                     merchant=expense.merchant,
@@ -36,8 +36,15 @@ class TestExpenseRepositoryPortProtocol:
                 self._store[stored.id] = stored
                 return stored
 
-            def get_by_id(self, expense_id: str) -> Expense | None:
+            def get_by_id(self, expense_id: int) -> Expense | None:
                 return self._store.get(expense_id)
+
+            def delete_by_id(self, user_id: int, expense_id: int) -> Expense | None:
+                expense = self._store.get(expense_id)
+                if expense is None or expense.user_id != user_id:
+                    return None
+                del self._store[expense_id]
+                return expense
 
             def get_by_user_and_month(
                 self,
@@ -78,11 +85,11 @@ class TestExpenseRepositoryPortProtocol:
 
         class SimpleRepo:
             def __init__(self) -> None:
-                self._store: dict[str, Expense] = {}
+                self._store: dict[int, Expense] = {}
 
             def save(self, expense: Expense) -> Expense:
                 stored = Expense(
-                    id="exp-42",
+                    id=42,
                     amount=expense.amount,
                     currency=expense.currency,
                     merchant=expense.merchant,
@@ -92,11 +99,18 @@ class TestExpenseRepositoryPortProtocol:
                     receipt_photo_id=expense.receipt_photo_id,
                     created_at=expense.created_at,
                 )
-                self._store["exp-42"] = stored
+                self._store[42] = stored
                 return stored
 
-            def get_by_id(self, expense_id: str) -> Expense | None:
+            def get_by_id(self, expense_id: int) -> Expense | None:
                 return self._store.get(expense_id)
+
+            def delete_by_id(self, user_id: int, expense_id: int) -> Expense | None:
+                expense = self._store.get(expense_id)
+                if expense is None or expense.user_id != user_id:
+                    return None
+                del self._store[expense_id]
+                return expense
 
             def get_by_user_and_month(
                 self,
@@ -125,9 +139,9 @@ class TestExpenseRepositoryPortProtocol:
         )
 
         saved = repo.save(expense)
-        assert saved.id == "exp-42"
+        assert saved.id == 42
 
-        retrieved = repo.get_by_id("exp-42")
+        retrieved = repo.get_by_id(42)
         assert retrieved is not None
         assert retrieved.amount == Decimal("10.00")
         assert retrieved.merchant == "Shop"

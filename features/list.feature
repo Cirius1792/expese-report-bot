@@ -16,6 +16,8 @@ Feature: Monthly Expense List (Interactive)
       | 30.00  | EUR      | Book Store   | 2026-03-05 | shopping |
     When I send the command "/list"
     Then the message shows expenses for July 2026
+    And the message lists expense "#1" for merchant "Supermarket"
+    And the message lists expense "#2" for merchant "Coffee Shop"
     And the message shows the total "55.00"
     And the bot shows buttons labeled "2026", "Jul", and "Mar"
     And the bot does not show a button labeled "2025"

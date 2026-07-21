@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from decimal import Decimal
+from html import escape as _html_escape
 from io import BytesIO
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -81,7 +82,8 @@ def _format_month_view(expenses: list[Expense], year: int, month: int) -> str:
     totals_by_currency: dict[str, Decimal] = {}
     for e in expenses:
         lines.append(
-            f"{e.date}  {e.merchant:<20} {e.amount:>8.2f} {e.currency:<4} {e.category or ''}"
+            f"#{e.id:<4} {e.date}  {e.merchant:<20}"
+            f" {e.amount:>8.2f} {e.currency:<4} {e.category or ''}"
         )
         totals_by_currency[e.currency] = (
             totals_by_currency.get(e.currency, Decimal("0.00")) + e.amount
@@ -263,6 +265,102 @@ def _make_list_callback_handler(repository: ExpenseRepositoryPort):
     return handler
 
 
+def _make_delete_callback_handler(repository: ExpenseRepositoryPort):
+    """Factory: create a callback handler for delete button presses.
+
+    Handles callback data of the form 'delete:<expense_id>'.
+    """
+
+    async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query is None:
+            logger.debug("Skipping delete callback with no CallbackQuery")
+            return
+
+        await query.answer()
+        data = query.data
+        if data is None or not data.startswith("delete:"):
+            return
+
+        user_id = query.from_user.id
+        try:
+            expense_id = int(data.split(":", 1)[1])
+        except (ValueError, IndexError):
+            logger.warning("Invalid delete callback_data from user %s: %r", user_id, data)
+            return
+
+        logger.info("User %s tapped delete for expense #%s", user_id, expense_id)
+
+        deleted = repository.delete_by_id(user_id, expense_id)
+
+        if deleted is None:
+            await query.answer("Expense not found.")
+            return
+
+        # Get original message text and wrap in strikethrough
+        original_text = ""
+        if query.message is not None:
+            original_text = (
+                getattr(query.message, "text", None)
+                or getattr(query.message, "caption", None)
+                or ""
+            )
+
+        escaped_text = _html_escape(original_text)
+        new_text = f"<s>{escaped_text}</s>\n\n🗑️ Deleted."
+
+        await query.edit_message_text(
+            text=new_text,
+            parse_mode="HTML",
+        )
+
+    return handler
+
+
+def _make_delete_handler(repository: ExpenseRepositoryPort):
+    """Factory: create a /delete command handler bound to the given repository."""
+
+    async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if update.effective_message is None or update.effective_user is None:
+            logger.debug("Skipping /delete update with no effective message or user")
+            return
+
+        user_id = update.effective_user.id
+        text = update.effective_message.text or ""
+
+        parts = text.split(maxsplit=1)
+        if len(parts) != 2:
+            await update.effective_message.reply_text("Usage: /delete <expense_id>")
+            return
+
+        id_str = parts[1].strip()
+
+        try:
+            expense_id = int(id_str)
+        except ValueError:
+            await update.effective_message.reply_text("Usage: /delete <expense_id>")
+            return
+
+        if expense_id <= 0:
+            await update.effective_message.reply_text("Usage: /delete <expense_id>")
+            return
+
+        logger.info("User %s requesting deletion of expense #%s", user_id, expense_id)
+
+        deleted = repository.delete_by_id(user_id, expense_id)
+
+        if deleted is None:
+            await update.effective_message.reply_text(f"Expense #{expense_id} was not found.")
+        else:
+            await update.effective_message.reply_text(
+                f"🗑️ Deleted expense #{deleted.id}:"
+                f" {deleted.merchant} — {deleted.amount:.2f} {deleted.currency}"
+                f" — {deleted.date}"
+            )
+
+    return handler
+
+
 def register_handlers(
     app: Application,
     extraction_adapter: ExtractionPort,
@@ -273,10 +371,17 @@ def register_handlers(
     app.add_handler(CommandHandler("start", _handle_start))
     app.add_handler(CommandHandler("report", _make_report_handler(repository)))
     app.add_handler(CommandHandler("list", _make_list_handler(repository)))
+    app.add_handler(CommandHandler("delete", _make_delete_handler(repository)))
     app.add_handler(
         CallbackQueryHandler(
             _make_list_callback_handler(repository),
             pattern=r"^(year|month):",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            _make_delete_callback_handler(repository),
+            pattern=r"^delete:",
         )
     )
     app.add_handler(
@@ -497,13 +602,17 @@ async def _respond_to_extraction(
 
         summary = (
             f"📄 *Extracted expense:*\n"
+            f"Expense #{saved_expense.id}\n"
             f"Amount: {result.amount} {result.currency}\n"
             f"Merchant: {result.merchant}\n"
             f"Date: {result.date}\n"
             f"Category: {result.category or '—'}\n\n"
             f"✅ Saved."
         )
-        await update.effective_message.reply_text(summary)
+        keyboard = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("🗑️ Delete", callback_data=f"delete:{saved_expense.id}")]]
+        )
+        await update.effective_message.reply_text(summary, reply_markup=keyboard)
     else:
         missing = _missing_fields(result)
         await update.effective_message.reply_text(
@@ -557,7 +666,7 @@ async def _handle_correction(
             receipt_photo_id=None,
             created_at=datetime.now(),
         )
-        repository.save(expense)
+        saved_expense = repository.save(expense)
         correction_store.remove(user_id)
         logger.info(
             "Correction resolved for user %s: saved updated expense",
@@ -566,13 +675,17 @@ async def _handle_correction(
 
         summary = (
             f"📄 *Updated expense:*\n"
+            f"Expense #{saved_expense.id}\n"
             f"Amount: {refined.amount} {refined.currency}\n"
             f"Merchant: {refined.merchant}\n"
             f"Date: {refined.date}\n"
             f"Category: {refined.category or '—'}\n\n"
             f"✅ Updated and saved."
         )
-        await update.effective_message.reply_text(summary)
+        keyboard = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("🗑️ Delete", callback_data=f"delete:{saved_expense.id}")]]
+        )
+        await update.effective_message.reply_text(summary, reply_markup=keyboard)
     else:
         # Still incomplete — update attempt and ask again
         updated = PendingCorrection(

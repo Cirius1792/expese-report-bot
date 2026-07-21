@@ -28,7 +28,7 @@ class TestSave:
     """Save logic — id assignment and preservation."""
 
     def test_save_assigns_id_when_none(self, repo: "SqliteExpenseRepository") -> None:
-        """When expense.id is None, save assigns a UUID4 string id."""
+        """When expense.id is None, save assigns an auto-increment integer id."""
         expense = Expense(
             id=None,
             amount=Decimal("42.50"),
@@ -44,14 +44,13 @@ class TestSave:
         saved = repo.save(expense)
 
         assert saved.id is not None
-        assert isinstance(saved.id, str)
-        # UUID4 format: 8-4-4-4-12 hex digits
-        assert len(saved.id) == 36
+        assert isinstance(saved.id, int)
+        assert saved.id >= 1
 
     def test_save_preserves_id_when_set(self, repo: "SqliteExpenseRepository") -> None:
         """When expense.id is set, save preserves it."""
         expense = Expense(
-            id="my-custom-id",
+            id=99,
             amount=Decimal("15.00"),
             currency="USD",
             merchant="Cafe",
@@ -64,7 +63,7 @@ class TestSave:
 
         saved = repo.save(expense)
 
-        assert saved.id == "my-custom-id"
+        assert saved.id == 99
 
 
 class TestGetById:
@@ -72,7 +71,7 @@ class TestGetById:
 
     def test_get_by_id_returns_none_for_unknown(self, repo: "SqliteExpenseRepository") -> None:
         """Unknown id returns None."""
-        result = repo.get_by_id("nonexistent-id")
+        result = repo.get_by_id(99999)
         assert result is None
 
     def test_get_by_id_returns_saved_expense(self, repo: "SqliteExpenseRepository") -> None:
@@ -387,6 +386,78 @@ class TestGetMonthsWithExpenses:
 
         assert repo.get_months_with_expenses(123, 2025) == {12}
         assert repo.get_months_with_expenses(123, 2026) == {7}
+
+
+class TestDeleteById:
+    """Tests for delete_by_id with user scoping."""
+
+    def _create_expense(
+        self,
+        repo: "SqliteExpenseRepository",
+        user_id: int,
+        d: date,
+        amount: str = "10.00",
+        currency: str = "EUR",
+        merchant: str = "Shop",
+    ) -> Expense:
+        return repo.save(
+            Expense(
+                id=None,
+                amount=Decimal(amount),
+                currency=currency,
+                merchant=merchant,
+                date=d,
+                category=None,
+                user_id=user_id,
+                receipt_photo_id=None,
+                created_at=datetime(d.year, d.month, d.day, 12, 0, 0),
+            )
+        )
+
+    def test_delete_by_id_removes_and_returns_expense(
+        self, repo: "SqliteExpenseRepository"
+    ) -> None:
+        """delete_by_id removes the expense and returns the deleted data."""
+        saved = self._create_expense(repo, user_id=1, d=date(2026, 7, 10), amount="42.50")
+
+        assert saved.id is not None
+        result = repo.delete_by_id(user_id=1, expense_id=saved.id)
+
+        assert result is not None
+        assert result.id == saved.id
+        assert result.amount == Decimal("42.50")
+
+        # Verify hard delete: not retrievable
+        assert repo.get_by_id(saved.id) is None
+
+    def test_delete_by_id_returns_none_when_not_found(
+        self, repo: "SqliteExpenseRepository"
+    ) -> None:
+        """delete_by_id returns None for a non-existent id."""
+        result = repo.delete_by_id(user_id=1, expense_id=99999)
+        assert result is None
+
+    def test_delete_by_id_scoped_to_user(self, repo: "SqliteExpenseRepository") -> None:
+        """delete_by_id only deletes if user_id matches, returns None otherwise."""
+        saved = self._create_expense(repo, user_id=1, d=date(2026, 7, 10))
+
+        # User 2 tries to delete user 1's expense
+        assert saved.id is not None
+        result = repo.delete_by_id(user_id=2, expense_id=saved.id)
+        assert result is None
+
+        # User 1's expense still exists
+        assert repo.get_by_id(saved.id) is not None
+
+    def test_delete_by_id_scoped_to_user_succeeds_for_owner(
+        self, repo: "SqliteExpenseRepository"
+    ) -> None:
+        """delete_by_id succeeds when user_id matches the owner."""
+        saved = self._create_expense(repo, user_id=42, d=date(2026, 7, 10))
+        assert saved.id is not None
+        result = repo.delete_by_id(user_id=42, expense_id=saved.id)
+        assert result is not None
+        assert repo.get_by_id(saved.id) is None
 
 
 class TestGetTotalByUserAndYear:

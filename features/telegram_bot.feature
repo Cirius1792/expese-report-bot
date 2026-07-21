@@ -15,7 +15,9 @@ Feature: Telegram Bot Shell
     And the LLM extracts amount "42.50", currency "EUR", merchant "Supermarket", date "2026-07-15", and category "groceries"
     Then the bot should reply with a confirmation containing "42.50"
     And the bot should reply with a confirmation containing "Supermarket"
+    And the bot should reply with a confirmation containing "Expense #1"
     And the bot should reply with a confirmation containing "Saved"
+    And the bot shows exactly these buttons: "🗑️ Delete"
     And the expense should be persisted with amount 42.50 EUR
 
   @story-4
@@ -24,7 +26,9 @@ Feature: Telegram Bot Shell
     And the LLM extracts amount "3.50", currency "EUR", merchant "Central Cafe", date "2026-07-12"
     When I send the message "coffee 3.50 eur at Central Cafe 2026-07-12"
     Then the bot should reply with a confirmation containing "3.50"
+    And the bot should reply with a confirmation containing "Expense #1"
     And the bot should reply with a confirmation containing "Saved"
+    And the bot shows exactly these buttons: "🗑️ Delete"
     And the expense should be persisted with merchant "Central Cafe"
 
   Scenario: Receive /start command

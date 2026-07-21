@@ -17,7 +17,7 @@ class TestExpense:
         """Expense can be created with all fields populated."""
         dt = datetime(2026, 7, 1, 12, 30, 0)
         exp = Expense(
-            id="exp-001",
+            id=42,
             amount=Decimal("42.50"),
             currency="EUR",
             merchant="Grocery Store",
@@ -27,7 +27,7 @@ class TestExpense:
             receipt_photo_id="AgADBAADFak4Gz9y",
             created_at=dt,
         )
-        assert exp.id == "exp-001"
+        assert exp.id == 42
         assert exp.amount == Decimal("42.50")
         assert exp.currency == "EUR"
         assert exp.merchant == "Grocery Store"
@@ -59,7 +59,7 @@ class TestExpense:
         """Expense instances cannot be mutated."""
         dt = datetime(2026, 7, 1, 12, 30, 0)
         exp = Expense(
-            id="exp-001",
+            id=42,
             amount=Decimal("10.00"),
             currency="EUR",
             merchant="Shop",

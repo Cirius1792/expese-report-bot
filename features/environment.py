@@ -158,10 +158,12 @@ def before_scenario(context: "behave.runner.Context", scenario: "behave.model.Sc
     context.telegram_replies: list[str] = []
     context.telegram_documents: list[tuple[str, bytes]] = []
 
-    # Reset CSV content and extraction adapter state
+    # Reset CSV content, extraction adapter state, and list markup
     context._csv_content = None
     context.extraction_result = None
     context.last_prediction = None
+    context._list_markup = None
+    context._list_message_text = None
 
 
 def after_scenario(context: "behave.runner.Context", scenario: "behave.model.Scenario") -> None:

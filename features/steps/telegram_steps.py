@@ -207,6 +207,7 @@ def step_send_command(context: Any, command: str) -> None:
     """Send a bot command to the appropriate handler."""
     from expense_report.adapters.inbound.telegram_bot import (
         _handle_start,
+        _make_delete_handler,
         _make_list_handler,
         _make_report_handler,
     )
@@ -233,6 +234,12 @@ def step_send_command(context: Any, command: str) -> None:
             asyncio.run(handler(update, ctx))
         context._list_message_text = update.effective_message.reply_text.call_args[0][0]
         context._list_markup = update.effective_message.reply_text.call_args[1].get("reply_markup")
+
+    elif command.startswith("/delete"):
+        handler = _make_delete_handler(context.repository)
+        ctx = MagicMock()
+        asyncio.run(handler(update, ctx))
+        context._last_delete_reply = update.effective_message.reply_text.call_args[0][0]
 
 
 # ── Then steps ──────────────────────────────────────────────────────────────

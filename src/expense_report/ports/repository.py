@@ -23,14 +23,26 @@ class ExpenseRepositoryPort(Protocol):
         """
         ...
 
-    def get_by_id(self, expense_id: str) -> Expense | None:
+    def get_by_id(self, expense_id: int) -> Expense | None:
         """Retrieve a single expense by its unique identifier.
 
         Args:
-            expense_id: The persistent id of the expense.
+            expense_id: The persistent integer id of the expense.
 
         Returns:
             The expense if found, None otherwise.
+        """
+        ...
+
+    def delete_by_id(self, user_id: int, expense_id: int) -> Expense | None:
+        """Delete an expense by its id, scoped to a user.
+
+        Args:
+            user_id: The Telegram user id.
+            expense_id: The persistent integer id of the expense.
+
+        Returns:
+            The deleted Expense if found and deleted, None if not found.
         """
         ...
 

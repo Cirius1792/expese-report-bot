@@ -252,6 +252,56 @@ class TestTextHandler:
         assert "date" in reply_text
 
 
+class TestSaveConfirmation:
+    """Tests for save confirmation format including ID and delete button."""
+
+    def test_save_confirmation_includes_id_and_delete_button(self) -> None:
+        """Successful save confirmation includes Expense #<id> and delete button."""
+        from expense_report.adapters.inbound.telegram_bot import _respond_to_extraction
+
+        mock_repo = MagicMock()
+        saved_expense = Expense(
+            id=42,
+            amount=Decimal("3.50"),
+            currency="EUR",
+            merchant="Central Cafe",
+            date=date(2026, 7, 12),
+            category="food",
+            user_id=12345,
+            receipt_photo_id=None,
+            created_at=datetime(2026, 7, 12, 12, 0, 0),
+        )
+        mock_repo.save.return_value = saved_expense
+
+        result = ExtractionResult(
+            amount=Decimal("3.50"),
+            currency="EUR",
+            merchant="Central Cafe",
+            date=date(2026, 7, 12),
+            category="food",
+        )
+
+        update = _make_update()
+
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2026, 7, 12, 12, 0, 0)
+            asyncio.run(_respond_to_extraction(update, result, mock_repo, receipt_photo_id=None))
+
+        # Verify reply_text was called with reply_markup containing delete button
+        call_kwargs = update.effective_message.reply_text.call_args[1]
+        reply = update.effective_message.reply_text.call_args[0][0]
+        assert "Expense #42" in reply
+        assert "✅ Saved." in reply
+
+        # Check button
+        markup = call_kwargs.get("reply_markup")
+        assert markup is not None
+        buttons = markup.inline_keyboard
+        assert len(buttons) == 1
+        assert buttons[0][0].text == "🗑️ Delete"
+        assert buttons[0][0].callback_data == "delete:42"
+
+
 class TestReportHandler:
     """Tests for /report command handler."""
 
@@ -260,7 +310,7 @@ class TestReportHandler:
         repo = MagicMock()
         repo.get_by_user_and_month.return_value = [
             Expense(
-                id="e1",
+                id=1,
                 amount=Decimal("10.00"),
                 currency="EUR",
                 merchant="Shop A",
@@ -271,7 +321,7 @@ class TestReportHandler:
                 created_at=datetime(2026, 7, 1, 10, 0, 0),
             ),
             Expense(
-                id="e2",
+                id=2,
                 amount=Decimal("20.50"),
                 currency="EUR",
                 merchant="Shop B",
@@ -376,10 +426,12 @@ class TestRegisterHandlers:
 
         register_handlers(app, adapter, repo, store)
 
-        # Verify 6 handlers were registered
-        assert app.add_handler.call_count == 6
+        # Verify 7 handlers were registered
+        assert app.add_handler.call_count == 8
         # Expected: CommandHandler(start), CommandHandler(report), CommandHandler(list),
-        #           CallbackQueryHandler, MessageHandler(photo), MessageHandler(text)
+        #           CommandHandler(delete), CallbackQueryHandler(list),
+        #           CallbackQueryHandler(delete), MessageHandler(photo),
+        #           MessageHandler(text)
 
 
 class TestMissingFields:
@@ -714,7 +766,7 @@ class TestListHandler:
         repo.get_months_with_expenses.return_value = {7, 3}
         repo.get_by_user_and_month.return_value = [
             Expense(
-                id="e1",
+                id=1,
                 amount=Decimal("42.50"),
                 currency="EUR",
                 merchant="Supermarket",
@@ -725,7 +777,7 @@ class TestListHandler:
                 created_at=datetime(2026, 7, 10, 10, 0, 0),
             ),
             Expense(
-                id="e2",
+                id=2,
                 amount=Decimal("12.50"),
                 currency="EUR",
                 merchant="Coffee Shop",
@@ -771,7 +823,7 @@ class TestListHandler:
         ]
         repo.get_by_user_and_month.return_value = [
             Expense(
-                id="e1",
+                id=1,
                 amount=Decimal("42.50"),
                 currency="EUR",
                 merchant="Shop",
@@ -816,7 +868,7 @@ class TestListHandler:
         ]
         repo.get_by_user_and_month.return_value = [
             Expense(
-                id="e1",
+                id=2,
                 amount=Decimal("10.00"),
                 currency="EUR",
                 merchant="Shop",
@@ -875,7 +927,7 @@ class TestListHandler:
         ]
         repo.get_by_user_and_month.return_value = [
             Expense(
-                id="e1",
+                id=3,
                 amount=Decimal("15.00"),
                 currency="EUR",
                 merchant="Old Shop",
@@ -929,6 +981,28 @@ class TestListHandler:
         repo.get_months_with_expenses.assert_any_call(99999, 2026)
         repo.get_by_user_and_month.assert_called_once_with(99999, 2026, 7)
 
+    def test_format_month_view_includes_expense_ids(self) -> None:
+        """Month view shows integer expense IDs for /delete reference."""
+        from expense_report.adapters.inbound.telegram_bot import _format_month_view
+
+        expenses = [
+            Expense(
+                id=42,
+                amount=Decimal("42.50"),
+                currency="EUR",
+                merchant="Supermarket",
+                date=date(2026, 7, 10),
+                category="groceries",
+                user_id=12345,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 10, 12, 0, 0),
+            ),
+        ]
+
+        text = _format_month_view(expenses, 2026, 7)
+
+        assert "#42" in text
+
 
 def _make_callback_update(
     user_id: int = 12345,
@@ -957,7 +1031,7 @@ class TestListCallbackHandler:
         repo = MagicMock()
         repo.get_by_user_and_month.return_value = [
             Expense(
-                id="e1",
+                id=4,
                 amount=Decimal("30.00"),
                 currency="EUR",
                 merchant="Book Store",
@@ -1007,7 +1081,7 @@ class TestListCallbackHandler:
         # get_by_user_and_month returns expenses for each month
         repo.get_by_user_and_month.return_value = [
             Expense(
-                id="e1",
+                id=5,
                 amount=Decimal("10.00"),
                 currency="EUR",
                 merchant="Old Shop",
@@ -1018,7 +1092,7 @@ class TestListCallbackHandler:
                 created_at=datetime(2025, 12, 1, 10, 0, 0),
             ),
             Expense(
-                id="e2",
+                id=6,
                 amount=Decimal("5.00"),
                 currency="EUR",
                 merchant="Another",
@@ -1104,6 +1178,180 @@ class TestListCallbackHandler:
         update.callback_query.answer.assert_awaited_once()
         # edit_message_text should NOT be called for invalid data
         update.callback_query.edit_message_text.assert_not_awaited()
+
+
+class TestDeleteCallbackHandler:
+    """Tests for delete button callback handler."""
+
+    def test_delete_button_edits_message_with_strikethrough(self) -> None:
+        """Delete button callback edits the original message with strikethrough."""
+        from expense_report.adapters.inbound.telegram_bot import _make_delete_callback_handler
+
+        mock_repo = MagicMock()
+        deleted_expense = Expense(
+            id=1,
+            amount=Decimal("3.50"),
+            currency="EUR",
+            merchant="Central Cafe",
+            date=date(2026, 7, 12),
+            category="food",
+            user_id=12345,
+            receipt_photo_id=None,
+            created_at=datetime(2026, 7, 12, 12, 0, 0),
+        )
+        mock_repo.delete_by_id.return_value = deleted_expense
+
+        handler = _make_delete_callback_handler(mock_repo)
+        update = MagicMock()
+        query = MagicMock()
+        query.data = "delete:1"
+        query.from_user = MagicMock()
+        query.from_user.id = 12345
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        query.edit_message_caption = AsyncMock()
+        query.edit_message_reply_markup = AsyncMock()
+        query.message = MagicMock()
+        query.message.text = "Original confirmation text with expense details"
+        query.message.caption = None
+        update.callback_query = query
+        context = MagicMock()
+
+        asyncio.run(handler(update, context))
+
+        # Verify callback was answered
+        query.answer.assert_awaited_once()
+
+        # Verify message was edited with strikethrough + deleted note
+        call_kwargs = query.edit_message_text.call_args[1]
+        edited_text = call_kwargs["text"]
+        assert "<s>" in edited_text
+        assert "</s>" in edited_text
+        assert "🗑️ Deleted." in edited_text
+        assert call_kwargs["parse_mode"] == "HTML"
+        # Verify delete button is removed (no reply_markup or empty)
+        assert call_kwargs.get("reply_markup") is None or (
+            hasattr(call_kwargs["reply_markup"], "inline_keyboard")
+            and len(call_kwargs["reply_markup"].inline_keyboard) == 0
+        )
+
+    def test_delete_callback_not_found_answers_callback_only(self) -> None:
+        """When expense not found, answers callback and does NOT edit message."""
+        from expense_report.adapters.inbound.telegram_bot import _make_delete_callback_handler
+
+        mock_repo = MagicMock()
+        mock_repo.delete_by_id.return_value = None
+
+        handler = _make_delete_callback_handler(mock_repo)
+        update = MagicMock()
+        query = MagicMock()
+        query.data = "delete:99"
+        query.from_user = MagicMock()
+        query.from_user.id = 12345
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        query.message = MagicMock()
+        query.message.text = "Some text"
+        update.callback_query = query
+        context = MagicMock()
+
+        asyncio.run(handler(update, context))
+
+        # Should answer callback with not-found message (called twice:
+        # once at top, once with not-found text)
+        query.answer.assert_any_call("Expense not found.")
+        # Should NOT edit the message
+        query.edit_message_text.assert_not_awaited()
+
+
+class TestDeleteHandler:
+    """Tests for /delete command handler."""
+
+    def test_delete_success_replies_with_audit_summary(self) -> None:
+        """Successful /delete replies with deleted expense details."""
+        from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
+
+        mock_repo = MagicMock()
+        deleted_expense = Expense(
+            id=42,
+            amount=Decimal("42.50"),
+            currency="EUR",
+            merchant="Supermarket",
+            date=date(2026, 7, 10),
+            category="groceries",
+            user_id=12345,
+            receipt_photo_id=None,
+            created_at=datetime(2026, 7, 10, 12, 0, 0),
+        )
+        mock_repo.delete_by_id.return_value = deleted_expense
+
+        handler = _make_delete_handler(mock_repo)
+        update = _make_update(text="/delete 42")
+        context = MagicMock()
+
+        asyncio.run(handler(update, context))
+
+        call_args = update.effective_message.reply_text.call_args
+        reply = call_args[0][0]
+        assert reply == "🗑️ Deleted expense #42: Supermarket — 42.50 EUR — 2026-07-10"
+        mock_repo.delete_by_id.assert_called_once_with(12345, 42)
+
+    def test_delete_not_found_replies_with_not_found_message(self) -> None:
+        """Non-existent expense /delete replies with not found."""
+        from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
+
+        mock_repo = MagicMock()
+        mock_repo.delete_by_id.return_value = None
+
+        handler = _make_delete_handler(mock_repo)
+        update = _make_update(text="/delete 99")
+        context = MagicMock()
+
+        asyncio.run(handler(update, context))
+
+        reply = update.effective_message.reply_text.call_args[0][0]
+        assert "Expense #99 was not found." == reply
+
+    def test_delete_invalid_format_returns_usage(self) -> None:
+        """Invalid /delete formats all return usage message."""
+        from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
+
+        mock_repo = MagicMock()
+        handler = _make_delete_handler(mock_repo)
+
+        invalid_inputs = ["/delete", "/delete abc", "/delete 42 extra"]
+        for cmd in invalid_inputs:
+            update = _make_update(text=cmd)
+            context = MagicMock()
+            asyncio.run(handler(update, context))
+            reply = update.effective_message.reply_text.call_args[0][0]
+            assert reply == "Usage: /delete <expense_id>", f"Failed for '{cmd}', got: {reply}"
+
+    def test_delete_non_positive_id_returns_usage(self) -> None:
+        """Non-positive ids like /delete 0 return usage."""
+        from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
+
+        mock_repo = MagicMock()
+        handler = _make_delete_handler(mock_repo)
+
+        update = _make_update(text="/delete 0")
+        context = MagicMock()
+        asyncio.run(handler(update, context))
+        reply = update.effective_message.reply_text.call_args[0][0]
+        assert reply == "Usage: /delete <expense_id>"
+
+    def test_delete_no_effective_message_returns_silently(self) -> None:
+        """Handler returns silently when effective_message is None."""
+        from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
+
+        mock_repo = MagicMock()
+        handler = _make_delete_handler(mock_repo)
+        update = MagicMock()
+        update.effective_message = None
+        context = MagicMock()
+
+        asyncio.run(handler(update, context))
+        # Should not raise — just return silently
 
 
 class TestMainFunction:
