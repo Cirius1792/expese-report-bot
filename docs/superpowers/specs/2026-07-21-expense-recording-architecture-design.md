@@ -2,13 +2,13 @@
 
 **Date:** 2026-07-21
 **Status:** Approved
-**Scope:** ARCH-001 and the driving-Interface decision in ARCH-002, implemented first as a complete free-text tracer slice through Telegram and CLI.
+**Scope:** ARCH-001 and the driving-Interface decision in ARCH-002, implemented first as a free-text tracer slice through Telegram and CLI — centered on complete text, with minimal ExtractionIncomplete compatibility to preserve existing behavior across both driving Adapters.
 
 ## Goal
 
 Concentrate shared Expense Recording orchestration in an application Module so driving Adapters translate transport input and render outcomes without invoking Extraction or constructing and saving Expenses themselves.
 
-The first tracer slice proves the new Seam with complete free-text Expense Recording through both existing driving Adapters. Receipt-photo and Correction paths remain unchanged until that slice is verified.
+The first tracer slice proves the new Seam with free-text Expense Recording through both existing driving Adapters — centered on complete text, but also returning a minimal ExtractionIncomplete outcome so both Adapters preserve their existing behavior without migrating Correction ownership. Receipt-photo and full Correction paths remain unchanged until that slice is verified.
 
 ## Ownership Rule
 
@@ -59,7 +59,7 @@ Mode describes interaction semantics, not transport technology:
 - `ONE_SHOT`: an incomplete Extraction is returned without opening Correction state. The CLI uses this mode.
 - `CONVERSATIONAL`: incomplete Extraction may open or continue the existing Correction lifecycle. Telegram uses this mode.
 
-The first tracer slice exercises complete text Extraction only, so both modes have the same successful path. Their different incomplete behavior is implemented only when the later partial/Correction slice moves behind the Seam.
+The first tracer slice centers on complete text Extraction, so both modes share the same successful path. ExtractionIncomplete is returned for partial results in both modes; per-mode incomplete behavior (open Correction vs. no-op) remains in the driving Adapters and is migrated behind the Seam in the later Correction lifecycle slice.
 
 ### Outcomes
 
@@ -162,14 +162,14 @@ An incomplete free-text message or CLI argument:
 3. invokes `ExtractionPort.extract(source, "text")` in `ExpenseRecordingUseCase`;
 4. produces an incomplete `ExtractionResult` (missing one or more of amount, currency, merchant, date);
 5. returns `ExtractionIncomplete(extraction=result)` without persisting anything;
-6. is rendered by the originating Adapter according to its existing incomplete behavior — Telegram opens or continues a Correction cycle; CLI prints the partial result and exits without saving.
+6. is rendered by the originating Adapter according to its existing incomplete behavior — Telegram opens a Correction cycle; CLI prints the partial result and exits without saving.
 
 Both Telegram and CLI use the same `ExpenseRecordingUseCase` Implementation, proving real Leverage across two driving Adapters.
 
 ### Explicitly deferred
 
 - Receipt-photo migration.
-- Partial Extraction migration.
+- Partial Extraction ownership — which component drives incomplete-handling decisions and Correction lifecycle setup per mode.
 - Correction routing and state migration.
 - Correction attempt semantics.
 - New user-visible behavior.
@@ -238,6 +238,6 @@ The complete ARCH-001 migration must additionally retain existing photo and Corr
 
 ## Completion Boundary
 
-The first tracer slice is successful when complete free-text recording in Telegram and CLI shares one `ExpenseRecordingUseCase` Implementation and all existing behavior remains covered.
+The first tracer slice is successful when free-text recording — complete and incomplete — in Telegram and CLI shares one `ExpenseRecordingUseCase` Implementation and all existing behavior remains covered.
 
 ARCH-001 itself remains in progress until Receipt-photo and Telegram Correction orchestration also move behind the driving Interface and the required evidence in the architecture tracker is satisfied.
