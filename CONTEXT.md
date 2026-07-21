@@ -27,6 +27,10 @@ No conversion to a base currency — Expenses retain their original currency in 
 The LLM's structured output (amount, currency, merchant, date, category) parsed from either a Receipt photo (vision-based) or a free-text message (when no receipt is available, e.g., cash expenses).
 An Extraction may be partial — missing mandatory fields triggers Correction.
 
+**Expense Recording**:
+The workflow that turns a Receipt photo or free-text description into a saved Expense, pausing for Correction when supported and required.
+_Avoid_: Intake, submission
+
 **Correction**:
 A user's text reply filling gaps or overriding fields in a partial Extraction.
 The Correction is fed back to the LLM alongside the original Extraction to produce a final, complete Extraction.
@@ -36,6 +40,7 @@ A Telegram user identified by their Telegram user_id. Each User's Expenses are i
 
 ## Relationships
 
+- **Expense Recording** uses one **Extraction** to produce an **Expense**, possibly after one or more **Corrections**
 - A **Receipt** produces exactly one **Expense**
 - An **Expense** is derived from exactly one **Receipt**
 - An **Expense Report** aggregates zero or more **Expenses** for the current month

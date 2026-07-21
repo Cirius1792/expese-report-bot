@@ -42,5 +42,5 @@ src/expense_report/
 ## Consequences
 
 - Domain layer must have zero imports from frameworks, IO, or adapters
-- Every adapter must implement a port protocol defined in `src/expense_report/ports/`
-- New external integrations (Slack, Teams) require only new in-adapters implementing existing port interfaces
+- Driven Adapters implement driven port Protocols; driving Adapters consume application-owned driving Interfaces, as clarified by ADR 0006
+- New external integrations (Slack, Teams) translate their transport into existing driving Interfaces
