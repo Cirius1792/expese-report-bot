@@ -58,21 +58,38 @@ def main() -> None:
     from expense_report.adapters.out.sqlite_repository import (
         SqliteExpenseRepository,
     )
+    from expense_report.application.expense_recording import (
+        ExpenseRecordingUseCase,
+    )
+    from expense_report.ports.expense_recording import (
+        ExpenseRecorded,
+        RecordExpense,
+        RecordingMode,
+        RecordingOutcome,
+    )
 
     extractor = DspyExtractionAdapter()
     repo = SqliteExpenseRepository(args.db)
+    expense_recording = ExpenseRecordingUseCase(extractor, repo)
+    outcome: RecordingOutcome | None = None
 
     if args.command == "extract-from-image":
         with open(args.image_path, "rb") as f:
             source = f.read()
-        source_type = "image"
         source_label = args.image_path
+        result = extractor.extract(source, "image")
     else:
-        source = args.text
-        source_type = "text"
         source_label = args.text
-
-    result = extractor.extract(source, source_type)
+        outcome = expense_recording.record(
+            RecordExpense(
+                user_id=args.user_id,
+                source=args.text,
+                source_type="text",
+                mode=RecordingMode.ONE_SHOT,
+                receipt_photo_id=None,
+            )
+        )
+        result = outcome.extraction
 
     print(f"Extraction result from '{source_label}':")
     print(f"  Amount:   {result.amount}")
@@ -82,7 +99,11 @@ def main() -> None:
     print(f"  Category: {result.category}")
     print(f"  Complete: {result.is_complete}")
 
-    if result.is_complete:
+    if isinstance(outcome, ExpenseRecorded):
+        print(f"\nSaved expense: {outcome.expense}")
+    elif outcome is not None:
+        print("\nExtraction incomplete — not saved.")
+    elif result.is_complete:
         assert result.amount is not None and result.currency is not None
         assert result.merchant is not None and result.date is not None
 

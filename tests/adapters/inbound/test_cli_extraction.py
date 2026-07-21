@@ -88,7 +88,7 @@ class TestMainSociable:
         clear=True,
     )
     @patch("dspy.ChainOfThought")
-    @patch("expense_report.adapters.inbound.cli_extraction.datetime")
+    @patch("expense_report.application.expense_recording.datetime")
     def test_text_flow_prints_result_and_saves(
         self,
         mock_dt: MagicMock,
@@ -222,3 +222,111 @@ class TestMainSociable:
         assert saved.merchant == "Store"
         assert saved.date == date(2026, 7, 10)
         assert saved.category is None
+
+    @patch.dict(
+        os.environ,
+        {
+            "LLM_BASE_URL": "http://test:8080",
+            "LLM_API_KEY": "test-key",
+            "LLM_MODEL": "test-model",
+        },
+        clear=True,
+    )
+    def test_text_flow_translates_arguments_to_record_command(self) -> None:
+        """extract-from-text constructs correct RecordExpense command via use case."""
+        from expense_report.domain.models import Expense, ExtractionResult
+        from expense_report.ports.expense_recording import (
+            ExpenseRecorded,
+            RecordExpense,
+            RecordingMode,
+        )
+
+        result = ExtractionResult(
+            amount=Decimal("15.00"),
+            currency="EUR",
+            merchant="Restaurant",
+            date=date(2026, 7, 15),
+            category="food",
+        )
+        saved = Expense(
+            id=9,
+            amount=Decimal("15.00"),
+            currency="EUR",
+            merchant="Restaurant",
+            date=date(2026, 7, 15),
+            category="food",
+            user_id=42,
+            receipt_photo_id=None,
+            created_at=datetime(2026, 7, 15, 12, 0, 0),
+        )
+
+        with (
+            patch("expense_report.adapters.out.dspy_extraction.DspyExtractionAdapter"),
+            patch("expense_report.adapters.out.sqlite_repository.SqliteExpenseRepository"),
+            patch(
+                "expense_report.application.expense_recording.ExpenseRecordingUseCase"
+            ) as use_case_class,
+            patch(
+                "sys.argv",
+                [
+                    "expense-extract",
+                    "--user-id",
+                    "42",
+                    "extract-from-text",
+                    "15 eur restaurant",
+                ],
+            ),
+        ):
+            use_case_class.return_value.record.return_value = ExpenseRecorded(saved, result)
+            from expense_report.adapters.inbound.cli_extraction import main
+
+            main()
+
+        use_case_class.return_value.record.assert_called_once_with(
+            RecordExpense(
+                user_id=42,
+                source="15 eur restaurant",
+                source_type="text",
+                mode=RecordingMode.ONE_SHOT,
+                receipt_photo_id=None,
+            )
+        )
+
+    def test_text_flow_renders_incomplete_without_saving(
+        self,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """extract-from-text with incomplete extraction prints message and does not save."""
+        from expense_report.domain.models import ExtractionResult
+        from expense_report.ports.expense_recording import ExtractionIncomplete
+
+        result = ExtractionResult(
+            amount=Decimal("15.00"),
+            currency="EUR",
+            merchant=None,
+            date=date(2026, 7, 15),
+            category=None,
+        )
+
+        with (
+            patch("expense_report.adapters.out.dspy_extraction.DspyExtractionAdapter"),
+            patch(
+                "expense_report.adapters.out.sqlite_repository.SqliteExpenseRepository"
+            ) as repo_class,
+            patch(
+                "expense_report.application.expense_recording.ExpenseRecordingUseCase"
+            ) as use_case_class,
+            patch(
+                "sys.argv",
+                ["expense-extract", "extract-from-text", "15 eur"],
+            ),
+        ):
+            use_case_class.return_value.record.return_value = ExtractionIncomplete(result)
+            from expense_report.adapters.inbound.cli_extraction import main
+
+            main()
+
+        captured = capsys.readouterr()
+        assert "Complete: False" in captured.out
+        assert "Extraction incomplete — not saved." in captured.out
+        repo_class.return_value.save.assert_not_called()
