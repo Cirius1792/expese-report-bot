@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from expense_report.domain.models import ExtractionResult
+from expense_report.domain.models import Expense, ExtractionResult
 from expense_report.ports.extraction import ExtractionPort
 from expense_report.ports.repository import ExpenseRepositoryPort
 
@@ -71,6 +71,17 @@ def test_complete_text_records_expense(mode_name: str) -> None:
     assert outcome.extraction == _complete_extraction()
     extraction.extract.assert_called_once_with("lunch 15 eur", "text")
     repository.save.assert_called_once()
+
+    # Verify every field of the Expense passed to repository.save
+    saved_expense: Expense = repository.save.call_args.args[0]
+    assert saved_expense.id is None  # assigned by repository
+    assert saved_expense.amount == Decimal("15.00")
+    assert saved_expense.currency == "EUR"
+    assert saved_expense.merchant == "Restaurant"
+    assert saved_expense.date == date(2026, 7, 15)
+    assert saved_expense.category == "food"
+    assert saved_expense.user_id == 12345
+    assert saved_expense.receipt_photo_id is None
 
 
 @pytest.mark.parametrize("mode_name", ["ONE_SHOT", "CONVERSATIONAL"])
