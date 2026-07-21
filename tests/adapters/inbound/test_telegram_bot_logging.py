@@ -265,6 +265,51 @@ class TestPhotoHandlerLogging:
             or "incomplete" in messages.lower()
         )
 
+    def test_photo_handler_logs_saved_once(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Complete photo extraction logs 'Saved expense' exactly once (no duplicate)."""
+        adapter = MagicMock()
+        adapter.extract.return_value = ExtractionResult(
+            amount=Decimal("42.50"),
+            currency="EUR",
+            merchant="Supermarket",
+            date=date(2026, 7, 15),
+            category="food",
+        )
+        repo = MagicMock()
+        mock_saved = Expense(
+            id=42,
+            amount=Decimal("42.50"),
+            currency="EUR",
+            merchant="Supermarket",
+            date=date(2026, 7, 15),
+            category="food",
+            user_id=12345,
+            receipt_photo_id="photo-abc",
+            created_at=datetime(2026, 7, 15, 12, 0, 0),
+        )
+        repo.save.return_value = mock_saved
+        store = CorrectionStore()
+
+        from expense_report.adapters.inbound.telegram_bot import (
+            _make_photo_handler,
+        )
+
+        handler = _make_photo_handler(adapter, repo, store)
+        update = _make_update(user_id=12345, photo_file_id="photo-abc")
+        context = _make_context()
+
+        caplog.set_level(logging.INFO)
+
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
+            asyncio.run(handler(update, context))
+
+        saved_logs = [r for r in caplog.records if "Saved expense" in r.message]
+        assert len(saved_logs) == 1, (
+            f"Expected exactly 1 'Saved expense' log, got {len(saved_logs)}: "
+            f"{[r.message for r in saved_logs]}"
+        )
+
 
 class TestTextHandlerLogging:
     """Verify text handler produces operational logs."""

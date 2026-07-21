@@ -603,7 +603,7 @@ async def _reply_with_recorded_expense(
 
 async def _respond_to_extraction(
     update: Update,
-    result,
+    result: ExtractionResult,
     repository: ExpenseRepositoryPort,
     receipt_photo_id: str | None,
 ) -> None:
@@ -633,11 +633,6 @@ async def _respond_to_extraction(
             created_at=datetime.now(),
         )
         saved_expense = repository.save(expense)
-        logger.info(
-            "Saved expense %s for user %s",
-            saved_expense.id,
-            user_id,
-        )
 
         await _reply_with_recorded_expense(
             update,
@@ -748,7 +743,7 @@ async def _reply_with_incomplete_extraction(
     )
 
 
-def _missing_fields(result) -> list[str]:
+def _missing_fields(result: ExtractionResult) -> list[str]:
     """Return a list of field names that are missing from an extraction result."""
     missing: list[str] = []
     if result.amount is None:
