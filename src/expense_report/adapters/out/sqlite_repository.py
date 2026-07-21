@@ -196,6 +196,35 @@ class SqliteExpenseRepository:
         )
         return total
 
+    def delete_by_id(self, user_id: int, expense_id: int) -> Expense | None:
+        """Delete an expense by its integer id, scoped to the given user.
+
+        Returns the deleted Expense for the caller to format a success message,
+        or None if no matching expense was found.
+        """
+        row = self._conn.execute(
+            "SELECT * FROM expenses WHERE id = ? AND user_id = ?",
+            (expense_id, user_id),
+        ).fetchone()
+
+        if row is None:
+            logger.info(
+                "Expense %s not found for user %s — nothing to delete",
+                expense_id,
+                user_id,
+            )
+            return None
+
+        self._conn.execute(
+            "DELETE FROM expenses WHERE id = ? AND user_id = ?",
+            (expense_id, user_id),
+        )
+        self._conn.commit()
+
+        logger.info("Deleted expense %s for user %s", expense_id, user_id)
+
+        return self._row_to_expense(row)
+
     @staticmethod
     def _row_to_expense(row: sqlite3.Row) -> Expense:
         """Convert a SQLite row to an Expense domain object."""
