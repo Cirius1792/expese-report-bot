@@ -252,6 +252,56 @@ class TestTextHandler:
         assert "date" in reply_text
 
 
+class TestSaveConfirmation:
+    """Tests for save confirmation format including ID and delete button."""
+
+    def test_save_confirmation_includes_id_and_delete_button(self) -> None:
+        """Successful save confirmation includes Expense #<id> and delete button."""
+        from expense_report.adapters.inbound.telegram_bot import _respond_to_extraction
+
+        mock_repo = MagicMock()
+        saved_expense = Expense(
+            id=42,
+            amount=Decimal("3.50"),
+            currency="EUR",
+            merchant="Central Cafe",
+            date=date(2026, 7, 12),
+            category="food",
+            user_id=12345,
+            receipt_photo_id=None,
+            created_at=datetime(2026, 7, 12, 12, 0, 0),
+        )
+        mock_repo.save.return_value = saved_expense
+
+        result = ExtractionResult(
+            amount=Decimal("3.50"),
+            currency="EUR",
+            merchant="Central Cafe",
+            date=date(2026, 7, 12),
+            category="food",
+        )
+
+        update = _make_update()
+
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2026, 7, 12, 12, 0, 0)
+            asyncio.run(_respond_to_extraction(update, result, mock_repo, receipt_photo_id=None))
+
+        # Verify reply_text was called with reply_markup containing delete button
+        call_kwargs = update.effective_message.reply_text.call_args[1]
+        reply = update.effective_message.reply_text.call_args[0][0]
+        assert "Expense #42" in reply
+        assert "✅ Saved." in reply
+
+        # Check button
+        markup = call_kwargs.get("reply_markup")
+        assert markup is not None
+        buttons = markup.inline_keyboard
+        assert len(buttons) == 1
+        assert buttons[0][0].text == "🗑️ Delete"
+        assert buttons[0][0].callback_data == "delete:42"
+
+
 class TestReportHandler:
     """Tests for /report command handler."""
 

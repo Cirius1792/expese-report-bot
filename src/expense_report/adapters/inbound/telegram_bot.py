@@ -598,13 +598,17 @@ async def _respond_to_extraction(
 
         summary = (
             f"📄 *Extracted expense:*\n"
+            f"Expense #{saved_expense.id}\n"
             f"Amount: {result.amount} {result.currency}\n"
             f"Merchant: {result.merchant}\n"
             f"Date: {result.date}\n"
             f"Category: {result.category or '—'}\n\n"
             f"✅ Saved."
         )
-        await update.effective_message.reply_text(summary)
+        keyboard = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("🗑️ Delete", callback_data=f"delete:{saved_expense.id}")]]
+        )
+        await update.effective_message.reply_text(summary, reply_markup=keyboard)
     else:
         missing = _missing_fields(result)
         await update.effective_message.reply_text(
@@ -658,7 +662,7 @@ async def _handle_correction(
             receipt_photo_id=None,
             created_at=datetime.now(),
         )
-        repository.save(expense)
+        saved_expense = repository.save(expense)
         correction_store.remove(user_id)
         logger.info(
             "Correction resolved for user %s: saved updated expense",
@@ -667,13 +671,17 @@ async def _handle_correction(
 
         summary = (
             f"📄 *Updated expense:*\n"
+            f"Expense #{saved_expense.id}\n"
             f"Amount: {refined.amount} {refined.currency}\n"
             f"Merchant: {refined.merchant}\n"
             f"Date: {refined.date}\n"
             f"Category: {refined.category or '—'}\n\n"
             f"✅ Updated and saved."
         )
-        await update.effective_message.reply_text(summary)
+        keyboard = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("🗑️ Delete", callback_data=f"delete:{saved_expense.id}")]]
+        )
+        await update.effective_message.reply_text(summary, reply_markup=keyboard)
     else:
         # Still incomplete — update attempt and ask again
         updated = PendingCorrection(
