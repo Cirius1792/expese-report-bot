@@ -929,6 +929,28 @@ class TestListHandler:
         repo.get_months_with_expenses.assert_any_call(99999, 2026)
         repo.get_by_user_and_month.assert_called_once_with(99999, 2026, 7)
 
+    def test_format_month_view_includes_expense_ids(self) -> None:
+        """Month view shows integer expense IDs for /delete reference."""
+        from expense_report.adapters.inbound.telegram_bot import _format_month_view
+
+        expenses = [
+            Expense(
+                id=42,
+                amount=Decimal("42.50"),
+                currency="EUR",
+                merchant="Supermarket",
+                date=date(2026, 7, 10),
+                category="groceries",
+                user_id=12345,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 10, 12, 0, 0),
+            ),
+        ]
+
+        text = _format_month_view(expenses, 2026, 7)
+
+        assert "#42" in text
+
 
 def _make_callback_update(
     user_id: int = 12345,

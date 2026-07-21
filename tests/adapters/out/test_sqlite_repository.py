@@ -414,7 +414,9 @@ class TestDeleteById:
             )
         )
 
-    def test_delete_by_id_removes_and_returns_expense(self, repo: "SqliteExpenseRepository") -> None:
+    def test_delete_by_id_removes_and_returns_expense(
+        self, repo: "SqliteExpenseRepository"
+    ) -> None:
         """delete_by_id removes the expense and returns the deleted data."""
         saved = self._create_expense(repo, user_id=1, d=date(2026, 7, 10), amount="42.50")
 
@@ -427,7 +429,9 @@ class TestDeleteById:
         # Verify hard delete: not retrievable
         assert repo.get_by_id(saved.id) is None
 
-    def test_delete_by_id_returns_none_when_not_found(self, repo: "SqliteExpenseRepository") -> None:
+    def test_delete_by_id_returns_none_when_not_found(
+        self, repo: "SqliteExpenseRepository"
+    ) -> None:
         """delete_by_id returns None for a non-existent id."""
         result = repo.delete_by_id(user_id=1, expense_id=99999)
         assert result is None
@@ -443,7 +447,9 @@ class TestDeleteById:
         # User 1's expense still exists
         assert repo.get_by_id(saved.id) is not None
 
-    def test_delete_by_id_scoped_to_user_succeeds_for_owner(self, repo: "SqliteExpenseRepository") -> None:
+    def test_delete_by_id_scoped_to_user_succeeds_for_owner(
+        self, repo: "SqliteExpenseRepository"
+    ) -> None:
         """delete_by_id succeeds when user_id matches the owner."""
         saved = self._create_expense(repo, user_id=42, d=date(2026, 7, 10))
         result = repo.delete_by_id(user_id=42, expense_id=saved.id)

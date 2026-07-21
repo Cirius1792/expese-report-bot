@@ -81,7 +81,8 @@ def _format_month_view(expenses: list[Expense], year: int, month: int) -> str:
     totals_by_currency: dict[str, Decimal] = {}
     for e in expenses:
         lines.append(
-            f"{e.date}  {e.merchant:<20} {e.amount:>8.2f} {e.currency:<4} {e.category or ''}"
+            f"#{e.id:<4} {e.date}  {e.merchant:<20}"
+            f" {e.amount:>8.2f} {e.currency:<4} {e.category or ''}"
         )
         totals_by_currency[e.currency] = (
             totals_by_currency.get(e.currency, Decimal("0.00")) + e.amount

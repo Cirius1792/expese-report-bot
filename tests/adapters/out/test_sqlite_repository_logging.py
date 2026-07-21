@@ -88,9 +88,7 @@ class TestSaveLogging:
 
         records = [r for r in caplog.records if r.levelno >= logging.INFO]
         messages = " ".join(r.message for r in records)
-        assert "99" in messages, (
-            f"No log with expense id '99' in: {records}"
-        )
+        assert "99" in messages, f"No log with expense id '99' in: {records}"
 
     def test_save_logs_newly_assigned_id(self, caplog: pytest.LogCaptureFixture) -> None:
         """Save with id=None logs the newly assigned integer id at INFO."""
@@ -169,10 +167,9 @@ class TestGetByIdLogging:
 
         records = [r for r in caplog.records if r.levelno >= logging.INFO]
         messages = " ".join(r.message for r in records)
-        assert (
-            "99999" in messages
-            or "not found" in messages.lower()
-        ), f"No log about non-existent id found. Captured: {[r.message for r in records]}"
+        assert "99999" in messages or "not found" in messages.lower(), (
+            f"No log about non-existent id found. Captured: {[r.message for r in records]}"
+        )
 
 
 class TestGetByUserAndMonthLogging:

@@ -153,6 +153,13 @@ def step_message_updates_month(context: Any, month_name: str, year: int) -> None
     assert str(year) in text, f"Expected '{year}' in updated message, got: {text[:200]}"
 
 
+@then('the message lists expense "{expense_ref}" for merchant "{merchant}"')
+def step_message_lists_expense_id(context: Any, expense_ref: str, merchant: str) -> None:
+    text = context._list_message_text
+    assert expense_ref in text, f"Expected '{expense_ref}' in message, got: {text[:200]}"
+    assert merchant in text, f"Expected '{merchant}' in message, got: {text[:200]}"
+
+
 @then('the message shows the total "{total}"')
 def step_message_shows_total(context: Any, total: str) -> None:
     text = context._list_message_text
