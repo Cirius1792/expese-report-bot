@@ -22,4 +22,5 @@ This ADR supersedes only ADR 0001's statement that every Adapter implements a po
 - Workflow tests use the same driving Interface as production Adapters without PTB or argparse types.
 - Telegram and CLI share the `ExpenseRecordingUseCase` Implementation while preserving distinct interaction modes.
 - Correction state remains an in-process Implementation detail; no speculative storage port is added.
+- `ExtractionIncomplete` provides a transport-neutral incomplete outcome so `record()` preserves existing partial-text behavior across both driving Adapters without migrating Correction ownership in the first slice.
 - Receipt-photo and Correction paths may migrate incrementally, but ARCH-001 remains unresolved until all required orchestration is behind the new Seam.

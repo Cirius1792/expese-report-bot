@@ -1,7 +1,7 @@
 # Expense Recording Architecture — Design
 
 **Date:** 2026-07-21
-**Status:** Approved direction; awaiting written-spec review
+**Status:** Approved
 **Scope:** ARCH-001 and the driving-Interface decision in ARCH-002, implemented first as a complete free-text tracer slice through Telegram and CLI.
 
 ## Goal
@@ -63,22 +63,27 @@ The first tracer slice exercises complete text Extraction only, so both modes ha
 
 ### Outcomes
 
-Use a typed, transport-neutral outcome union. The complete tracer slice requires:
+Use a typed, transport-neutral outcome union. The first tracer slice defines:
 
 ```python
 @dataclass(frozen=True)
 class ExpenseRecorded:
     expense: Expense
     extraction: ExtractionResult
+
+@dataclass(frozen=True)
+class ExtractionIncomplete:
+    extraction: ExtractionResult
+
+RecordingOutcome = ExpenseRecorded | ExtractionIncomplete
 ```
 
-The completed ARCH-001 design will also need outcomes equivalent to:
+`ExtractionIncomplete` carries the partial `ExtractionResult` so each driving Adapter can render its existing incomplete behavior. Its inclusion in the first slice preserves existing behavior across both Adapters without migrating Correction ownership:
 
-- incomplete one-shot Extraction;
-- Correction required or still incomplete;
-- Correction limit reached.
+- Telegram continues its existing `CorrectionStore` setup and rendering outside the use case.
+- CLI prints its existing incomplete/not-saved output.
 
-Those outcomes will be finalized in the later partial/Correction slice rather than speculated into the first implementation.
+Full Correction-specific outcomes (required, still incomplete, limit reached) remain deferred to the partial/Correction slice.
 
 ### Expense Recording Use Case
 
@@ -91,7 +96,7 @@ Those outcomes will be finalized in the later partial/Correction slice rather th
 It owns:
 
 - choosing `extract()` or, later, `refine()` according to mode and pending state;
-- interpreting Extraction completeness;
+- interpreting Extraction completeness — complete Extraction produces an `Expense` for persistence; incomplete Extraction returns `ExtractionIncomplete` without saving;
 - constructing `Expense`;
 - assigning `created_at` when the complete Expense is recorded;
 - saving through `ExpenseRepositoryPort`;
@@ -117,7 +122,7 @@ CLI retains:
 - stdout formatting;
 - process-specific composition.
 
-For complete free text, both Adapters call `ExpenseRecordingPort.record()` and render `ExpenseRecorded` using their existing output format.
+For complete free text, both Adapters call `ExpenseRecordingPort.record()` and render `ExpenseRecorded` using their existing output format. For incomplete Extraction, both Adapters receive `ExtractionIncomplete` and render their existing behavior: Telegram continues with CorrectionStore setup outside the use case; CLI prints the partial result and exits without saving.
 
 ### Composition
 
@@ -149,6 +154,15 @@ A complete free-text message or CLI argument:
 6. is saved through `ExpenseRepositoryPort`;
 7. returns `ExpenseRecorded`;
 8. is rendered by the originating Adapter exactly as before.
+
+An incomplete free-text message or CLI argument:
+
+1. is translated by the driving Adapter into `RecordExpense`;
+2. crosses the new driving Seam;
+3. invokes `ExtractionPort.extract(source, "text")` in `ExpenseRecordingUseCase`;
+4. produces an incomplete `ExtractionResult` (missing one or more of amount, currency, merchant, date);
+5. returns `ExtractionIncomplete(extraction=result)` without persisting anything;
+6. is rendered by the originating Adapter according to its existing incomplete behavior — Telegram opens or continues a Correction cycle; CLI prints the partial result and exits without saving.
 
 Both Telegram and CLI use the same `ExpenseRecordingUseCase` Implementation, proving real Leverage across two driving Adapters.
 
@@ -200,6 +214,8 @@ Add tests through `ExpenseRecordingPort` without PTB or argparse types. For the 
 - complete conversational text records an Expense when no Correction is pending;
 - the saved Expense preserves extracted fields and User identity;
 - the Module invokes Extraction and persistence in the expected successful flow;
+- incomplete one-shot text returns `ExtractionIncomplete` without persisting;
+- incomplete conversational text returns `ExtractionIncomplete` without persisting;
 - extraction and repository exceptions propagate.
 
 ### Thin Adapter tests
