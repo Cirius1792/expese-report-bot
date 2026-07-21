@@ -1,6 +1,10 @@
-# Expense Report Bot
+<p align="center">
+  <img src="docs/assets/logo.png" alt="(ex)SpenserBot logo" width="240">
+</p>
 
-A Telegram bot that extracts structured expense data from receipt photos and free-text messages using LLM-powered extraction. Built with a hexagonal (ports & adapters) architecture.
+<h1 align="center">(ex)SpenserBot</h1>
+
+(ex)SpenserBot is a Telegram bot that extracts structured expense data from receipt photos and free-text messages using LLM-powered extraction. Built with a hexagonal (ports & adapters) architecture.
 
 ## Features
 
