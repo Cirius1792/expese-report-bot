@@ -264,6 +264,50 @@ def _make_list_callback_handler(repository: ExpenseRepositoryPort):
     return handler
 
 
+def _make_delete_handler(repository: ExpenseRepositoryPort):
+    """Factory: create a /delete command handler bound to the given repository."""
+
+    async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if update.effective_message is None or update.effective_user is None:
+            logger.debug("Skipping /delete update with no effective message or user")
+            return
+
+        user_id = update.effective_user.id
+        text = update.effective_message.text or ""
+
+        parts = text.split(maxsplit=1)
+        if len(parts) != 2:
+            await update.effective_message.reply_text("Usage: /delete <expense_id>")
+            return
+
+        id_str = parts[1].strip()
+
+        try:
+            expense_id = int(id_str)
+        except ValueError:
+            await update.effective_message.reply_text("Usage: /delete <expense_id>")
+            return
+
+        if expense_id <= 0:
+            await update.effective_message.reply_text("Usage: /delete <expense_id>")
+            return
+
+        logger.info("User %s requesting deletion of expense #%s", user_id, expense_id)
+
+        deleted = repository.delete_by_id(user_id, expense_id)
+
+        if deleted is None:
+            await update.effective_message.reply_text(f"Expense #{expense_id} was not found.")
+        else:
+            await update.effective_message.reply_text(
+                f"🗑️ Deleted expense #{deleted.id}:"
+                f" {deleted.merchant} — {deleted.amount} {deleted.currency}"
+                f" — {deleted.date}"
+            )
+
+    return handler
+
+
 def register_handlers(
     app: Application,
     extraction_adapter: ExtractionPort,
@@ -274,6 +318,7 @@ def register_handlers(
     app.add_handler(CommandHandler("start", _handle_start))
     app.add_handler(CommandHandler("report", _make_report_handler(repository)))
     app.add_handler(CommandHandler("list", _make_list_handler(repository)))
+    app.add_handler(CommandHandler("delete", _make_delete_handler(repository)))
     app.add_handler(
         CallbackQueryHandler(
             _make_list_callback_handler(repository),

@@ -376,8 +376,8 @@ class TestRegisterHandlers:
 
         register_handlers(app, adapter, repo, store)
 
-        # Verify 6 handlers were registered
-        assert app.add_handler.call_count == 6
+        # Verify 7 handlers were registered
+        assert app.add_handler.call_count == 7
         # Expected: CommandHandler(start), CommandHandler(report), CommandHandler(list),
         #           CallbackQueryHandler, MessageHandler(photo), MessageHandler(text)
 
@@ -1126,6 +1126,98 @@ class TestListCallbackHandler:
         update.callback_query.answer.assert_awaited_once()
         # edit_message_text should NOT be called for invalid data
         update.callback_query.edit_message_text.assert_not_awaited()
+
+
+class TestDeleteHandler:
+    """Tests for /delete command handler."""
+
+    def test_delete_success_replies_with_audit_summary(self) -> None:
+        """Successful /delete replies with deleted expense details."""
+        from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
+
+        mock_repo = MagicMock()
+        deleted_expense = Expense(
+            id=42,
+            amount=Decimal("42.50"),
+            currency="EUR",
+            merchant="Supermarket",
+            date=date(2026, 7, 10),
+            category="groceries",
+            user_id=12345,
+            receipt_photo_id=None,
+            created_at=datetime(2026, 7, 10, 12, 0, 0),
+        )
+        mock_repo.delete_by_id.return_value = deleted_expense
+
+        handler = _make_delete_handler(mock_repo)
+        update = _make_update(text="/delete 42")
+        context = MagicMock()
+
+        asyncio.run(handler(update, context))
+
+        call_args = update.effective_message.reply_text.call_args
+        reply = call_args[0][0]
+        assert "🗑️ Deleted expense #42" in reply
+        assert "Supermarket" in reply
+        assert "42.50 EUR" in reply
+        assert "2026-07-10" in reply
+
+    def test_delete_not_found_replies_with_not_found_message(self) -> None:
+        """Non-existent expense /delete replies with not found."""
+        from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
+
+        mock_repo = MagicMock()
+        mock_repo.delete_by_id.return_value = None
+
+        handler = _make_delete_handler(mock_repo)
+        update = _make_update(text="/delete 99")
+        context = MagicMock()
+
+        asyncio.run(handler(update, context))
+
+        reply = update.effective_message.reply_text.call_args[0][0]
+        assert "Expense #99 was not found." == reply
+
+    def test_delete_invalid_format_returns_usage(self) -> None:
+        """Invalid /delete formats all return usage message."""
+        from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
+
+        mock_repo = MagicMock()
+        handler = _make_delete_handler(mock_repo)
+
+        invalid_inputs = ["/delete", "/delete abc", "/delete 42 extra"]
+        for cmd in invalid_inputs:
+            update = _make_update(text=cmd)
+            context = MagicMock()
+            asyncio.run(handler(update, context))
+            reply = update.effective_message.reply_text.call_args[0][0]
+            assert reply == "Usage: /delete <expense_id>", f"Failed for '{cmd}', got: {reply}"
+
+    def test_delete_non_positive_id_returns_usage(self) -> None:
+        """Non-positive ids like /delete 0 return usage."""
+        from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
+
+        mock_repo = MagicMock()
+        handler = _make_delete_handler(mock_repo)
+
+        update = _make_update(text="/delete 0")
+        context = MagicMock()
+        asyncio.run(handler(update, context))
+        reply = update.effective_message.reply_text.call_args[0][0]
+        assert reply == "Usage: /delete <expense_id>"
+
+    def test_delete_no_effective_message_returns_silently(self) -> None:
+        """Handler returns silently when effective_message is None."""
+        from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
+
+        mock_repo = MagicMock()
+        handler = _make_delete_handler(mock_repo)
+        update = MagicMock()
+        update.effective_message = None
+        context = MagicMock()
+
+        asyncio.run(handler(update, context))
+        # Should not raise — just return silently
 
 
 class TestMainFunction:
