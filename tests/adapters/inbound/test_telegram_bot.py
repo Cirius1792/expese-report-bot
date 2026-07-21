@@ -1157,10 +1157,8 @@ class TestDeleteHandler:
 
         call_args = update.effective_message.reply_text.call_args
         reply = call_args[0][0]
-        assert "🗑️ Deleted expense #42" in reply
-        assert "Supermarket" in reply
-        assert "42.50 EUR" in reply
-        assert "2026-07-10" in reply
+        assert reply == "🗑️ Deleted expense #42: Supermarket — 42.50 EUR — 2026-07-10"
+        mock_repo.delete_by_id.assert_called_once_with(12345, 42)
 
     def test_delete_not_found_replies_with_not_found_message(self) -> None:
         """Non-existent expense /delete replies with not found."""

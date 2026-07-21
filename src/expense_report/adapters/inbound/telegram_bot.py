@@ -301,7 +301,7 @@ def _make_delete_handler(repository: ExpenseRepositoryPort):
         else:
             await update.effective_message.reply_text(
                 f"🗑️ Deleted expense #{deleted.id}:"
-                f" {deleted.merchant} — {deleted.amount} {deleted.currency}"
+                f" {deleted.merchant} — {deleted.amount:.2f} {deleted.currency}"
                 f" — {deleted.date}"
             )
 
