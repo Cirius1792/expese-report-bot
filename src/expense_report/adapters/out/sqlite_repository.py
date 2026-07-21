@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -35,7 +34,7 @@ class SqliteExpenseRepository:
         self._conn.execute(
             """
             CREATE TABLE IF NOT EXISTS expenses (
-                id TEXT PRIMARY KEY,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 amount TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 merchant TEXT NOT NULL,
@@ -52,46 +51,77 @@ class SqliteExpenseRepository:
     def save(self, expense: Expense) -> Expense:
         """Persist an expense record.
 
-        If expense.id is None, a new UUID4 is generated.
+        If expense.id is None, SQLite assigns an auto-increment integer id.
+        If expense.id is set, it is used as-is (INSERT with explicit id).
         """
-        expense_id = expense.id if expense.id is not None else str(uuid.uuid4())
+        if expense.id is not None:
+            self._conn.execute(
+                """
+                INSERT OR REPLACE INTO expenses
+                    (id, amount, currency, merchant, date, category,
+                     user_id, receipt_photo_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    expense.id,
+                    str(expense.amount),
+                    expense.currency,
+                    expense.merchant,
+                    expense.date.isoformat(),
+                    expense.category,
+                    expense.user_id,
+                    expense.receipt_photo_id,
+                    expense.created_at.isoformat(),
+                ),
+            )
+            self._conn.commit()
+            logger.info("Saved expense %s for user %s", expense.id, expense.user_id)
+            return Expense(
+                id=expense.id,
+                amount=expense.amount,
+                currency=expense.currency,
+                merchant=expense.merchant,
+                date=expense.date,
+                category=expense.category,
+                user_id=expense.user_id,
+                receipt_photo_id=expense.receipt_photo_id,
+                created_at=expense.created_at,
+            )
+        else:
+            cursor = self._conn.execute(
+                """
+                INSERT INTO expenses
+                    (amount, currency, merchant, date, category,
+                     user_id, receipt_photo_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(expense.amount),
+                    expense.currency,
+                    expense.merchant,
+                    expense.date.isoformat(),
+                    expense.category,
+                    expense.user_id,
+                    expense.receipt_photo_id,
+                    expense.created_at.isoformat(),
+                ),
+            )
+            self._conn.commit()
+            new_id = cursor.lastrowid
+            logger.info("Saved expense %s for user %s", new_id, expense.user_id)
+            return Expense(
+                id=new_id,
+                amount=expense.amount,
+                currency=expense.currency,
+                merchant=expense.merchant,
+                date=expense.date,
+                category=expense.category,
+                user_id=expense.user_id,
+                receipt_photo_id=expense.receipt_photo_id,
+                created_at=expense.created_at,
+            )
 
-        self._conn.execute(
-            """
-            INSERT OR REPLACE INTO expenses
-                (id, amount, currency, merchant, date, category,
-                 user_id, receipt_photo_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                expense_id,
-                str(expense.amount),
-                expense.currency,
-                expense.merchant,
-                expense.date.isoformat(),
-                expense.category,
-                expense.user_id,
-                expense.receipt_photo_id,
-                expense.created_at.isoformat(),
-            ),
-        )
-        self._conn.commit()
-
-        logger.info("Saved expense %s for user %s", expense_id, expense.user_id)
-
-        return Expense(
-            id=expense_id,
-            amount=expense.amount,
-            currency=expense.currency,
-            merchant=expense.merchant,
-            date=expense.date,
-            category=expense.category,
-            user_id=expense.user_id,
-            receipt_photo_id=expense.receipt_photo_id,
-            created_at=expense.created_at,
-        )
-
-    def get_by_id(self, expense_id: str) -> Expense | None:
+    def get_by_id(self, expense_id: int) -> Expense | None:
         """Retrieve a single expense by its unique identifier."""
         row = self._conn.execute(
             "SELECT * FROM expenses WHERE id = ?",
@@ -170,7 +200,7 @@ class SqliteExpenseRepository:
     def _row_to_expense(row: sqlite3.Row) -> Expense:
         """Convert a SQLite row to an Expense domain object."""
         return Expense(
-            id=row["id"],
+            id=int(row["id"]),
             amount=Decimal(row["amount"]),
             currency=row["currency"],
             merchant=row["merchant"],

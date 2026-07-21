@@ -68,7 +68,7 @@ class TestSaveLogging:
         caplog.set_level(logging.INFO)
 
         expense = Expense(
-            id="test-save-log-id",
+            id=99,
             amount=Decimal("42.50"),
             currency="EUR",
             merchant="Shop",
@@ -88,12 +88,12 @@ class TestSaveLogging:
 
         records = [r for r in caplog.records if r.levelno >= logging.INFO]
         messages = " ".join(r.message for r in records)
-        assert "test-save-log-id" in messages, (
-            f"No log with expense id 'test-save-log-id' in: {records}"
+        assert "99" in messages, (
+            f"No log with expense id '99' in: {records}"
         )
 
     def test_save_logs_newly_assigned_id(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Save with id=None logs the newly assigned UUID at INFO."""
+        """Save with id=None logs the newly assigned integer id at INFO."""
         caplog.set_level(logging.INFO)
 
         expense = Expense(
@@ -118,7 +118,7 @@ class TestSaveLogging:
         assert saved.id is not None
         records = [r for r in caplog.records if r.levelno >= logging.INFO]
         messages = " ".join(r.message for r in records)
-        assert saved.id in messages, (
+        assert str(saved.id) in messages, (
             f"No log with assigned id '{saved.id}' found. Captured: {[r.message for r in records]}"
         )
 
@@ -131,7 +131,7 @@ class TestGetByIdLogging:
         caplog.set_level(logging.INFO)
 
         expense = Expense(
-            id="test-get-by-id",
+            id=42,
             amount=Decimal("99.99"),
             currency="USD",
             merchant="Store",
@@ -148,12 +148,12 @@ class TestGetByIdLogging:
 
         repo = SqliteExpenseRepository(":memory:")
         repo.save(expense)
-        repo.get_by_id("test-get-by-id")
+        repo.get_by_id(42)
 
         records = [r for r in caplog.records if r.levelno >= logging.INFO]
         messages = " ".join(r.message for r in records)
-        assert "test-get-by-id" in messages, (
-            f"No log with id 'test-get-by-id' found. Captured: {[r.message for r in records]}"
+        assert "42" in messages, (
+            f"No log with id '42' found. Captured: {[r.message for r in records]}"
         )
 
     def test_get_by_id_logs_not_found(self, caplog: pytest.LogCaptureFixture) -> None:
@@ -165,14 +165,13 @@ class TestGetByIdLogging:
         )
 
         repo = SqliteExpenseRepository(":memory:")
-        repo.get_by_id("non-existent-id")
+        repo.get_by_id(99999)
 
         records = [r for r in caplog.records if r.levelno >= logging.INFO]
         messages = " ".join(r.message for r in records)
         assert (
-            "non-existent-id" in messages
+            "99999" in messages
             or "not found" in messages.lower()
-            or "non-existent" in messages.lower()
         ), f"No log about non-existent id found. Captured: {[r.message for r in records]}"
 
 

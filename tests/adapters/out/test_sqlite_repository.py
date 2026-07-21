@@ -28,7 +28,7 @@ class TestSave:
     """Save logic — id assignment and preservation."""
 
     def test_save_assigns_id_when_none(self, repo: "SqliteExpenseRepository") -> None:
-        """When expense.id is None, save assigns a UUID4 string id."""
+        """When expense.id is None, save assigns an auto-increment integer id."""
         expense = Expense(
             id=None,
             amount=Decimal("42.50"),
@@ -44,14 +44,13 @@ class TestSave:
         saved = repo.save(expense)
 
         assert saved.id is not None
-        assert isinstance(saved.id, str)
-        # UUID4 format: 8-4-4-4-12 hex digits
-        assert len(saved.id) == 36
+        assert isinstance(saved.id, int)
+        assert saved.id >= 1
 
     def test_save_preserves_id_when_set(self, repo: "SqliteExpenseRepository") -> None:
         """When expense.id is set, save preserves it."""
         expense = Expense(
-            id="my-custom-id",
+            id=99,
             amount=Decimal("15.00"),
             currency="USD",
             merchant="Cafe",
@@ -64,7 +63,7 @@ class TestSave:
 
         saved = repo.save(expense)
 
-        assert saved.id == "my-custom-id"
+        assert saved.id == 99
 
 
 class TestGetById:
@@ -72,7 +71,7 @@ class TestGetById:
 
     def test_get_by_id_returns_none_for_unknown(self, repo: "SqliteExpenseRepository") -> None:
         """Unknown id returns None."""
-        result = repo.get_by_id("nonexistent-id")
+        result = repo.get_by_id(99999)
         assert result is None
 
     def test_get_by_id_returns_saved_expense(self, repo: "SqliteExpenseRepository") -> None:
