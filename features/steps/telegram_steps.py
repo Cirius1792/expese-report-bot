@@ -166,9 +166,15 @@ def step_send_text_message(context: Any, text: str) -> None:
         from expense_report.adapters.out.dspy_extraction import (
             DspyExtractionAdapter,
         )
+        from expense_report.application.expense_recording import (
+            ExpenseRecordingUseCase,
+        )
 
         adapter = DspyExtractionAdapter()
-        handler = _make_text_handler(adapter, context.repository, context.correction_store)
+        recording = ExpenseRecordingUseCase(adapter, context.repository)
+        handler = _make_text_handler(
+            recording, adapter, context.repository, context.correction_store
+        )
         update = make_telegram_update(context, text=text)
         ctx = MagicMock()
 

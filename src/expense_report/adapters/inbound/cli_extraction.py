@@ -13,10 +13,26 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 
-from expense_report.domain.models import Expense
+from expense_report.domain.models import Expense, ExtractionResult
 
 # CLI entry point — lazy imports for adapters to avoid circular deps
 # at module level and keep import errors contained
+
+
+def _print_extraction_result(source_label: str, result: ExtractionResult) -> None:
+    """Print a formatted extraction result to stdout.
+
+    This helper is intentionally narrow — it takes only a string label and an
+    ExtractionResult from the domain model. It must NOT import any application
+    or expense-recording symbols.
+    """
+    print(f"Extraction result from '{source_label}':")
+    print(f"  Amount:   {result.amount}")
+    print(f"  Currency: {result.currency}")
+    print(f"  Merchant: {result.merchant}")
+    print(f"  Date:     {result.date}")
+    print(f"  Category: {result.category}")
+    print(f"  Complete: {result.is_complete}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -59,46 +75,68 @@ def main() -> None:
         SqliteExpenseRepository,
     )
 
-    extractor = DspyExtractionAdapter()
-    repo = SqliteExpenseRepository(args.db)
-
+    # ── Image path: legacy extraction + direct persist (no expense_recording imports) ──
     if args.command == "extract-from-image":
+        extractor = DspyExtractionAdapter()
+        repo = SqliteExpenseRepository(args.db)
+
         with open(args.image_path, "rb") as f:
             source = f.read()
-        source_type = "image"
-        source_label = args.image_path
-    else:
-        source = args.text
-        source_type = "text"
-        source_label = args.text
 
-    result = extractor.extract(source, source_type)
+        result = extractor.extract(source, "image")
 
-    print(f"Extraction result from '{source_label}':")
-    print(f"  Amount:   {result.amount}")
-    print(f"  Currency: {result.currency}")
-    print(f"  Merchant: {result.merchant}")
-    print(f"  Date:     {result.date}")
-    print(f"  Category: {result.category}")
-    print(f"  Complete: {result.is_complete}")
+        _print_extraction_result(args.image_path, result)
 
-    if result.is_complete:
-        assert result.amount is not None and result.currency is not None
-        assert result.merchant is not None and result.date is not None
+        if result.is_complete:
+            assert result.amount is not None and result.currency is not None
+            assert result.merchant is not None and result.date is not None
 
-        expense = Expense(
-            id=None,
-            amount=result.amount,
-            currency=result.currency,
-            merchant=result.merchant,
-            date=result.date,
-            category=result.category,
+            expense = Expense(
+                id=None,
+                amount=result.amount,
+                currency=result.currency,
+                merchant=result.merchant,
+                date=result.date,
+                category=result.category,
+                user_id=args.user_id,
+                receipt_photo_id=None,
+                created_at=datetime.now(),
+            )
+
+            saved = repo.save(expense)
+            print(f"\nSaved expense: {saved}")
+        else:
+            print("\nExtraction incomplete — not saved.")
+        return
+
+    # ── Text path: expense recording use case (all expense_recording imports here) ──
+    from expense_report.application.expense_recording import (
+        ExpenseRecordingUseCase,
+    )
+    from expense_report.ports.expense_recording import (
+        ExpenseRecorded,
+        RecordExpense,
+        RecordingMode,
+    )
+
+    extractor = DspyExtractionAdapter()
+    repo = SqliteExpenseRepository(args.db)
+    expense_recording = ExpenseRecordingUseCase(extractor, repo)
+
+    outcome = expense_recording.record(
+        RecordExpense(
             user_id=args.user_id,
+            source=args.text,
+            source_type="text",
+            mode=RecordingMode.ONE_SHOT,
             receipt_photo_id=None,
-            created_at=datetime.now(),
         )
+    )
+    result = outcome.extraction
 
-        saved = repo.save(expense)
-        print(f"\nSaved expense: {saved}")
+    _print_extraction_result(args.text, result)
+
+    if isinstance(outcome, ExpenseRecorded):
+        print(f"\nSaved expense: {outcome.expense}")
     else:
         print("\nExtraction incomplete — not saved.")

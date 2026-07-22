@@ -133,6 +133,10 @@ class TestMainStartsLogging:
             call_order.append("repository")
             return MagicMock()
 
+        def build_expense_recording_use_case(*args: object, **kwargs: object) -> MagicMock:
+            call_order.append("expense_recording_use_case")
+            return MagicMock()
+
         def build_application() -> MagicMock:
             call_order.append("application_builder")
             mock_builder_instance = MagicMock()
@@ -166,6 +170,10 @@ class TestMainStartsLogging:
                 side_effect=build_repository,
             ),
             patch(
+                "expense_report.adapters.inbound.main.ExpenseRecordingUseCase",
+                side_effect=build_expense_recording_use_case,
+            ),
+            patch(
                 "expense_report.adapters.inbound.main.Application.builder",
                 side_effect=build_application,
             ),
@@ -180,6 +188,7 @@ class TestMainStartsLogging:
             "audit_verify",
             "extraction_adapter",
             "repository",
+            "expense_recording_use_case",
             "application_builder",
             "register_authorization_guard",
             "register_handlers",

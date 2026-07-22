@@ -8,8 +8,11 @@ dspy.ChainOfThought (LLM framework), openai.OpenAI (vision API), PIL.Image (imag
 from __future__ import annotations
 
 import os
+import pathlib
+import sys
 from datetime import date, datetime
 from decimal import Decimal
+from types import ModuleType
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -88,7 +91,7 @@ class TestMainSociable:
         clear=True,
     )
     @patch("dspy.ChainOfThought")
-    @patch("expense_report.adapters.inbound.cli_extraction.datetime")
+    @patch("expense_report.application.expense_recording.datetime")
     def test_text_flow_prints_result_and_saves(
         self,
         mock_dt: MagicMock,
@@ -118,10 +121,22 @@ class TestMainSociable:
             mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
             main()
 
-        # Assert: output was printed
+        # Assert: output was printed with exact full string
         captured = capsys.readouterr()
-        assert "Extraction result from '15 eur restaurant'" in captured.out
-        assert "Complete: True" in captured.out
+        assert captured.out == (
+            "Extraction result from '15 eur restaurant':\n"
+            "  Amount:   15.00\n"
+            "  Currency: EUR\n"
+            "  Merchant: Restaurant\n"
+            "  Date:     2026-07-15\n"
+            "  Category: food\n"
+            "  Complete: True\n"
+            "\n"
+            "Saved expense: Expense(id=1, amount=Decimal('15.00'), currency='EUR',"
+            " merchant='Restaurant', date=datetime.date(2026, 7, 15),"
+            " category='food', user_id=999999999, receipt_photo_id=None,"
+            " created_at=datetime.datetime(2026, 7, 15, 12, 0))\n"
+        )
 
         # Assert: expense was actually saved to the database
         from expense_report.adapters.out.sqlite_repository import (
@@ -222,3 +237,192 @@ class TestMainSociable:
         assert saved.merchant == "Store"
         assert saved.date == date(2026, 7, 10)
         assert saved.category is None
+
+    @patch.dict(
+        os.environ,
+        {
+            "LLM_BASE_URL": "http://test:8080",
+            "LLM_API_KEY": "test-key",
+            "LLM_MODEL": "test-model",
+        },
+        clear=True,
+    )
+    def test_text_flow_translates_arguments_to_record_command(self) -> None:
+        """extract-from-text constructs correct RecordExpense command via use case."""
+        from expense_report.domain.models import Expense, ExtractionResult
+        from expense_report.ports.expense_recording import (
+            ExpenseRecorded,
+            RecordExpense,
+            RecordingMode,
+        )
+
+        result = ExtractionResult(
+            amount=Decimal("15.00"),
+            currency="EUR",
+            merchant="Restaurant",
+            date=date(2026, 7, 15),
+            category="food",
+        )
+        saved = Expense(
+            id=9,
+            amount=Decimal("15.00"),
+            currency="EUR",
+            merchant="Restaurant",
+            date=date(2026, 7, 15),
+            category="food",
+            user_id=42,
+            receipt_photo_id=None,
+            created_at=datetime(2026, 7, 15, 12, 0, 0),
+        )
+
+        with (
+            patch("expense_report.adapters.out.dspy_extraction.DspyExtractionAdapter"),
+            patch("expense_report.adapters.out.sqlite_repository.SqliteExpenseRepository"),
+            patch(
+                "expense_report.application.expense_recording.ExpenseRecordingUseCase"
+            ) as use_case_class,
+            patch(
+                "sys.argv",
+                [
+                    "expense-extract",
+                    "--user-id",
+                    "42",
+                    "extract-from-text",
+                    "15 eur restaurant",
+                ],
+            ),
+        ):
+            use_case_class.return_value.record.return_value = ExpenseRecorded(saved, result)
+            from expense_report.adapters.inbound.cli_extraction import main
+
+            main()
+
+        use_case_class.return_value.record.assert_called_once_with(
+            RecordExpense(
+                user_id=42,
+                source="15 eur restaurant",
+                source_type="text",
+                mode=RecordingMode.ONE_SHOT,
+                receipt_photo_id=None,
+            )
+        )
+
+    def test_text_flow_renders_incomplete_without_saving(
+        self,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """extract-from-text with incomplete extraction prints message and does not save."""
+        from expense_report.domain.models import ExtractionResult
+        from expense_report.ports.expense_recording import ExtractionIncomplete
+
+        result = ExtractionResult(
+            amount=Decimal("15.00"),
+            currency="EUR",
+            merchant=None,
+            date=date(2026, 7, 15),
+            category=None,
+        )
+
+        with (
+            patch("expense_report.adapters.out.dspy_extraction.DspyExtractionAdapter"),
+            patch(
+                "expense_report.adapters.out.sqlite_repository.SqliteExpenseRepository"
+            ) as repo_class,
+            patch(
+                "expense_report.application.expense_recording.ExpenseRecordingUseCase"
+            ) as use_case_class,
+            patch(
+                "sys.argv",
+                ["expense-extract", "extract-from-text", "15 eur"],
+            ),
+        ):
+            use_case_class.return_value.record.return_value = ExtractionIncomplete(result)
+            from expense_report.adapters.inbound.cli_extraction import main
+
+            main()
+
+        captured = capsys.readouterr()
+        assert captured.out == (
+            "Extraction result from '15 eur':\n"
+            "  Amount:   15.00\n"
+            "  Currency: EUR\n"
+            "  Merchant: None\n"
+            "  Date:     2026-07-15\n"
+            "  Category: None\n"
+            "  Complete: False\n"
+            "\n"
+            "Extraction incomplete — not saved.\n"
+        )
+        repo_class.return_value.save.assert_not_called()
+
+    def test_image_flow_does_not_use_expense_recording(
+        self,
+        tmp_path: pathlib.Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """extract-from-image does not import expense_recording port or application modules."""
+        image_path = tmp_path / "receipt.jpg"
+        image_path.write_bytes(b"fake-image-content")
+        db_path = str(tmp_path / "test.db")
+
+        from expense_report.domain.models import ExtractionResult
+
+        # Eject pre-loaded copies so we can detect new imports during main()
+        saved_modules: dict[str, ModuleType] = {}
+        for mod_name in (
+            "expense_report.application.expense_recording",
+            "expense_report.ports.expense_recording",
+        ):
+            if mod_name in sys.modules:
+                saved_modules[mod_name] = sys.modules.pop(mod_name)
+
+        try:
+            with (
+                patch(
+                    "expense_report.adapters.out.dspy_extraction.DspyExtractionAdapter"
+                ) as mock_extractor_cls,
+                patch(
+                    "expense_report.adapters.out.sqlite_repository.SqliteExpenseRepository"
+                ) as mock_repo_cls,
+                patch("expense_report.adapters.inbound.cli_extraction.datetime") as mock_dt,
+                patch(
+                    "sys.argv",
+                    [
+                        "expense-extract",
+                        "--db",
+                        db_path,
+                        "extract-from-image",
+                        str(image_path),
+                    ],
+                ),
+            ):
+                mock_extractor = mock_extractor_cls.return_value
+                mock_extractor.extract.return_value = ExtractionResult(
+                    amount=Decimal("29.99"),
+                    currency="USD",
+                    merchant="Store",
+                    date=date(2026, 7, 10),
+                    category=None,
+                )
+                mock_dt.now.return_value = datetime(2026, 7, 10, 14, 0, 0)
+
+                from expense_report.adapters.inbound.cli_extraction import main
+
+                main()
+
+            # Prove neither expense_recording module was imported during image flow
+            assert "expense_report.application.expense_recording" not in sys.modules, (
+                "Image path must not import expense_report.application.expense_recording"
+            )
+            assert "expense_report.ports.expense_recording" not in sys.modules, (
+                "Image path must not import expense_report.ports.expense_recording"
+            )
+
+            # Prove the legacy image path still works and persists
+            mock_repo_cls.return_value.save.assert_called_once()
+            captured = capsys.readouterr()
+            assert "Extraction result from" in captured.out
+            assert "29.99" in captured.out
+        finally:
+            for mod_name, mod in saved_modules.items():
+                sys.modules[mod_name] = mod

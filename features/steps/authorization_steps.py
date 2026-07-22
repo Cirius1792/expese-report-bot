@@ -67,7 +67,9 @@ def step_send_text_through_authorization_gate(context: Any, text: str) -> None:
         date=None,
         category=None,
     )
+    recording = MagicMock()
     handler = _make_text_handler(
+        recording,
         extraction_adapter,
         context.repository,
         context.correction_store,
