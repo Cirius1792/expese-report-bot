@@ -30,14 +30,14 @@
 | 1 | Complete free text + `ONE_SHOT` → `ExpenseRecorded` | `tests/application/test_expense_recording.py::test_complete_text_records_expense[ONE_SHOT]` — 7 passed, 0 failed |
 | 2 | Complete free text + `CONVERSATIONAL` + no pending Correction → `ExpenseRecorded` | `tests/application/test_expense_recording.py::test_complete_text_records_expense[CONVERSATIONAL]` — 7 passed, 0 failed |
 | 3 | Telegram translates free-text → `RecordExpense` with correct fields; renders confirmation | `tests/adapters/inbound/test_telegram_bot.py::TestTextHandler::test_complete_extraction_calls_use_case_and_confirms` — 2 passed, 0 failed |
-| 4 | CLI translates `extract-from-text` → `RecordExpense` with correct fields; prints result | `tests/adapters/inbound/test_cli_extraction.py::TestMainSociable::test_text_flow_translates_arguments_to_record_command`, `test_text_flow_prints_result_and_saves` — 9 passed, 0 failed |
-| 5 | Incomplete Extraction in either mode → `ExtractionIncomplete`, not persisted | `tests/application/test_expense_recording.py::test_incomplete_text_returns_without_persisting[ONE_SHOT]`, `test_incomplete_text_returns_without_persisting[CONVERSATIONAL]` — 7 passed, 0 failed |
+| 4 | CLI translates `extract-from-text` → `RecordExpense` with correct fields; prints result | `tests/adapters/inbound/test_cli_extraction.py::TestMainSociable::test_text_flow_translates_arguments_to_record_command`, `tests/adapters/inbound/test_cli_extraction.py::TestMainSociable::test_text_flow_prints_result_and_saves` — 9 passed, 0 failed |
+| 5 | Incomplete Extraction in either mode → `ExtractionIncomplete`, not persisted | `tests/application/test_expense_recording.py::test_incomplete_text_returns_without_persisting[ONE_SHOT]`, `tests/application/test_expense_recording.py::test_incomplete_text_returns_without_persisting[CONVERSATIONAL]` — 7 passed, 0 failed |
 | 6 | Telegram incomplete → opens existing pending Correction state; renders missing-fields prompt | `tests/adapters/inbound/test_telegram_bot.py::TestTextHandler::test_partial_extraction_opens_existing_correction_state` — 2 passed, 0 failed |
 | 7 | CLI incomplete → prints incomplete/not-saved output | `tests/adapters/inbound/test_cli_extraction.py::TestMainSociable::test_text_flow_renders_incomplete_without_saving` — 9 passed, 0 failed |
-| 8 | Extraction and repository exceptions propagate from `ExpenseRecordingUseCase` | `tests/application/test_expense_recording.py::test_extraction_exception_propagates`, `test_repository_exception_propagates` — 7 passed, 0 failed |
-| 9 | Telegram and CLI must not construct or save an Expense in migrated free-text paths | Confirmed by `test_complete_extraction_calls_use_case_and_confirms` (Telegram calls `recording.record()` — no `Expense` construction, no `repository.save()`). `test_text_flow_translates_arguments_to_record_command` (CLI calls `expense_recording.record()` — no direct construction). Both adapters delegate entirely to `ExpenseRecordingPort`. |
-| 10 | Receipt-photo orchestration must not move behind `ExpenseRecordingPort` | Confirmed by `test_complete_extraction_saves_and_confirms` (PhotoHandler calls `extraction_adapter.extract()` + constructs `Expense` directly in `_respond_to_extraction`; receipt-photo orchestration remains on `ExtractionPort`/repository/`CorrectionStore` and outside `ExpenseRecordingPort`; rendering helper refactoring and logging test changes do not alter that ownership). `test_image_flow_does_not_use_expense_recording` (CLI image path uses legacy `extract→save` pipeline, no recording port imports). ARCH-001 remains `In progress`. |
-| 11 | Text message with pending Correction → existing Correction handler, not new `RecordExpense` | `test_text_handler_with_pending_correction_refine_complete_saves_and_removes`, `test_text_handler_with_pending_correction_still_incomplete_asks_again`, `test_text_handler_with_pending_correction_maxed_out_removes_and_fails`, `test_text_handler_without_pending_correction_normal_flow` (telegram_bot.py — TestCorrectionFlow shows pending correction check at top of text handler before recording port call). |
+| 8 | Extraction and repository exceptions propagate from `ExpenseRecordingUseCase` | `tests/application/test_expense_recording.py::test_extraction_exception_propagates`, `tests/application/test_expense_recording.py::test_repository_exception_propagates` — 7 passed, 0 failed |
+| 9 | Telegram and CLI must not construct or save an Expense in migrated free-text paths | **Executed (tests):** `tests/adapters/inbound/test_telegram_bot.py::TestTextHandler::test_complete_extraction_calls_use_case_and_confirms` — mock assertion proves Telegram calls `recording.record()` with no `Expense` construction and no `repository.save()` in the free-text branch. `tests/adapters/inbound/test_cli_extraction.py::TestMainSociable::test_text_flow_translates_arguments_to_record_command` — mock assertion proves CLI calls `expense_recording.record()` with no direct construction.<br>**Source (code):** Telegram `_make_text_handler` (`src/expense_report/adapters/inbound/telegram_bot.py`) — captures `expense_recording` port via closure, calls `expense_recording.record(RecordExpense(...))`, never constructs `Expense` or calls `repository.save()` directly in the free-text branch. CLI `main` (`src/expense_report/adapters/inbound/cli_extraction.py`) — text path imports `ExpenseRecordingUseCase` and calls `expense_recording.record(RecordExpense(...))`; `main`'s text branch contains zero `Expense(...)` constructor calls and zero repository invocations. Both adapters delegate entirely to `ExpenseRecordingPort`. |
+| 10 | Receipt-photo orchestration must not move behind `ExpenseRecordingPort` | **Executed (tests):** `tests/adapters/inbound/test_telegram_bot.py::TestPhotoHandler::test_complete_extraction_saves_and_confirms` — confirms PhotoHandler calls `extraction_adapter.extract()` and constructs `Expense` directly. `tests/adapters/inbound/test_cli_extraction.py::TestMainSociable::test_image_flow_does_not_use_expense_recording` — confirms CLI image path uses legacy `extract→save` pipeline with no recording port imports.<br>**Source (code):** Telegram `_make_photo_handler` (`src/expense_report/adapters/inbound/telegram_bot.py`) — calls `extraction_adapter.extract()` directly and constructs `Expense` in `_respond_to_extraction` (same file). Receipt-photo orchestration remains on `ExtractionPort`/repository/`CorrectionStore` and outside `ExpenseRecordingPort`. CLI `main` (`src/expense_report/adapters/inbound/cli_extraction.py`) — image branch opens file, calls `extractor.extract()`, constructs `Expense` by hand, calls `repo.save()`. Zero `expense_recording` imports at image-branch scope; the `from expense_report.application.expense_recording import ...` block is inside the text branch only.<br>ARCH-001 remains `In progress`. |
+| 11 | Text message with pending Correction → existing Correction handler, not new `RecordExpense` | **Executed (tests):** `tests/adapters/inbound/test_telegram_bot.py::TestCorrectionFlow::test_text_handler_with_pending_correction_refine_complete_saves_and_removes`, `tests/adapters/inbound/test_telegram_bot.py::TestCorrectionFlow::test_text_handler_with_pending_correction_still_incomplete_asks_again`, `tests/adapters/inbound/test_telegram_bot.py::TestCorrectionFlow::test_text_handler_with_pending_correction_maxed_out_removes_and_fails`, `tests/adapters/inbound/test_telegram_bot.py::TestCorrectionFlow::test_text_handler_without_pending_correction_normal_flow`.<br>**Source (code):** Telegram `_make_text_handler` (`src/expense_report/adapters/inbound/telegram_bot.py`) — entry gate: `pending = correction_store.get(user_id)` before any call to `expense_recording.record()`. If pending is not `None`, the handler delegates to `_handle_correction(...)` and returns early, never reaching the `RecordExpense` command. |
 | 12 | ARCH-001 must not be marked resolved by this tracer slice | Confirmed in `docs/architecture/hexagonal-alignment-todo.md` — ARCH-001 status remains `In progress`. No change to status in this slice. |
 
 ### Focused Evidence: Application Workflow Tests
@@ -45,7 +45,7 @@
 ```text
 $ uv run pytest tests/application/test_expense_recording.py -q
 .......                                                                  [100%]
-7 passed in 0.02s
+7 passed in 0.04s
 ```
 
 Test names: `test_complete_text_records_expense[ONE_SHOT]`, `test_complete_text_records_expense[CONVERSATIONAL]`, `test_incomplete_text_returns_without_persisting[ONE_SHOT]`, `test_incomplete_text_returns_without_persisting[CONVERSATIONAL]`, `test_extraction_exception_propagates`, `test_repository_exception_propagates`, `test_use_case_satisfies_expense_recording_port`
@@ -55,7 +55,7 @@ Test names: `test_complete_text_records_expense[ONE_SHOT]`, `test_complete_text_
 ```text
 $ uv run pytest tests/adapters/inbound/test_telegram_bot.py::TestTextHandler -q
 ..                                                                       [100%]
-2 passed in 0.02s
+2 passed in 0.04s
 ```
 
 Test names: `test_complete_extraction_calls_use_case_and_confirms`, `test_partial_extraction_opens_existing_correction_state`
@@ -65,7 +65,7 @@ Test names: `test_complete_extraction_calls_use_case_and_confirms`, `test_partia
 ```text
 $ uv run pytest tests/adapters/inbound/test_cli_extraction.py -q
 .........                                                                [100%]
-9 passed in 0.55s
+9 passed in 1.18s
 ```
 
 Test names: `TestArgparseSetup::test_parse_extract_from_image`, `TestArgparseSetup::test_parse_extract_from_text`, `TestArgparseSetup::test_allows_custom_user_id_and_db`, `TestArgparseSetup::test_requires_subcommand`, `TestMainSociable::test_text_flow_prints_result_and_saves`, `TestMainSociable::test_image_flow_saves_to_database`, `TestMainSociable::test_text_flow_translates_arguments_to_record_command`, `TestMainSociable::test_text_flow_renders_incomplete_without_saving`, `TestMainSociable::test_image_flow_does_not_use_expense_recording`
@@ -102,7 +102,7 @@ tests/domain/test_models.py ..........                                   [ 97%]
 tests/ports/test_extraction.py ..                                        [ 98%]
 tests/ports/test_repository.py ..                                        [100%]
 
-============================= 189 passed in 8.33s ==============================
+============================= 189 passed in 8.72s ==============================
 ```
 
 ### Full Verification Chain (Behave)
@@ -112,7 +112,7 @@ $ uv run behave
 7 features passed, 0 failed, 0 skipped
 27 scenarios passed, 0 failed, 0 skipped
 217 steps passed, 0 failed, 0 skipped
-Took 0min 1.293s
+Took 0min 1.060s
 ```
 
 Behave features: authorization, cli_extraction, correction, delete, list, report, telegram_bot.
