@@ -964,7 +964,7 @@ class TestExplicitConstructor:
 
         # Clear env and provide explicit params — should still work
         with patch.dict(os.environ, {}, clear=True):
-            adapter = DspyExtractionAdapter(
+            DspyExtractionAdapter(
                 base_url="http://explicit:9090",
                 api_key="explicit-key-abc",
                 model="explicit-model/v2",
@@ -1057,7 +1057,7 @@ class TestExplicitConstructor:
             },
             clear=True,
         ):
-            adapter = DspyExtractionAdapter()
+            DspyExtractionAdapter()
 
         mock_lm_cls.assert_called_once_with(
             model="env-model/v3",
