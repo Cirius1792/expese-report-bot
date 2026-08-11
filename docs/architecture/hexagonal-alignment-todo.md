@@ -141,7 +141,7 @@ After completing an item:
 | Field | Value |
 |-------|-------|
 | **Priority** | P1 |
-| **Status** | `Not started` |
+| **Status** | `Resolved` |
 | **Files/Symbols** | `src/expense_report/adapters/inbound/telegram_bot.py`: `_format_month_view`, `_format_year_view`, `_build_list_keyboard`, `_make_list_handler`, `_make_list_callback_handler`, `_make_report_handler`, `_make_delete_callback_handler`, `_make_delete_handler` |
 | **Problem** | Browse (`/list`), report (`/report`), and delete (`/delete`) behavior is implemented entirely inside the Telegram Adapter. The `/list` flow interleaves Telegram callback/keyboard work with year/month discovery, active-period selection, Currency aggregation, and Expense retrieval. `/report` combines current-month selection and retrieval with CSV/document delivery. `/delete` combines command/callback translation and rendering with the application action. These flows need not share one policy shape, but each currently lacks an independently testable application Interface. |
 | **Deletion test** | Delete these handlers and any future driving Adapter that needs equivalent Expense browsing or reporting must reconstruct the same policy from repository calls. Because Telegram is currently the only production Adapter for these capabilities, this is still a hypothetical Seam and should be deepened only where policy can be separated cleanly from Telegram presentation. |
@@ -260,6 +260,7 @@ After completing an item:
 | Date | Item | Decision | ADR |
 |------|------|----------|-----|
 | 2026-08-11 | ARCH-001 | Resolved. Photo recording (Telegram + CLI) and the entire Correction lifecycle (pending routing, refine/extract dispatch, attempt counting, max-out, save-and-clear) now owned by ExpenseRecordingUseCase behind ExpenseRecordingPort. Both driving Adapters are thin translation+rendering layers. CorrectionStore migrated to application/ (half of ARCH-005). | ADR 0006 |
+| 2026-08-11 | ARCH-003 | Resolved. Browse (`/list`), report (`/report`), and delete (`/delete`) flows route through ExpenseQueryPort (ports/expense_queries.py). Application owns period discovery, expense aggregation, CSV report generation, and deletion. Telegram adapter keeps only keyboard construction, text rendering, callback parsing, and BytesIO delivery. CSV stays in domain (pure stdlib function). | ADR 0006 |
 | 2026-08-11 | ARCH-002 | Resolved. ADR 0006 already clarified that driving Adapters consume driving-ports (Protocols defined in ports/), not implement them. ADR 0001 Consequences section reflects this. Use case exercised through the same driving Interface as production Adapters. | ADR 0006 |
 
 
