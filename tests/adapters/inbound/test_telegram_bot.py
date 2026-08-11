@@ -84,42 +84,58 @@ class TestStartHandler:
 
 
 class TestPhotoHandler:
-    """Tests for photo message handler."""
+    """Tests for photo message handler (Receipt recording through the driving port)."""
 
-    def test_complete_extraction_saves_and_confirms(self) -> None:
-        """Photo with complete extraction saves expense and replies with summary."""
-        adapter = MagicMock()
-        adapter.extract.return_value = ExtractionResult(
+    def test_complete_extraction_records_and_confirms(self) -> None:
+        """Photo is translated to a conversational image command; confirmation rendered."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            _make_photo_handler,
+        )
+        from expense_report.ports.expense_recording import (
+            ExpenseRecorded,
+            RecordExpense,
+            RecordingMode,
+        )
+
+        result = ExtractionResult(
             amount=Decimal("42.50"),
             currency="EUR",
             merchant="Supermarket",
             date=date(2026, 7, 15),
             category="food",
         )
-        repo = MagicMock()
+        saved = Expense(
+            id=1,
+            amount=Decimal("42.50"),
+            currency="EUR",
+            merchant="Supermarket",
+            date=date(2026, 7, 15),
+            category="food",
+            user_id=12345,
+            receipt_photo_id="photo-abc-123",
+            created_at=datetime(2026, 7, 15, 12, 0, 0),
+        )
+        recording = MagicMock()
+        recording.record.return_value = ExpenseRecorded(saved, result)
         store = CorrectionStore()  # real domain object
 
-        from expense_report.adapters.inbound.telegram_bot import (
-            _make_photo_handler,
-        )
-
-        handler = _make_photo_handler(adapter, repo, store)
+        handler = _make_photo_handler(recording, store)
         update = _make_update(photo_file_id="photo-abc-123")
         context = _make_context(image_bytes=b"receipt-image")
 
-        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
-            asyncio.run(handler(update, context))
+        asyncio.run(handler(update, context))
 
-        adapter.extract.assert_called_once_with(b"receipt-image", "image")
-        repo.save.assert_called_once()
-
-        saved_expense: Expense = repo.save.call_args[0][0]
-        assert isinstance(saved_expense, Expense)
-        assert saved_expense.amount == Decimal("42.50")
-        assert saved_expense.merchant == "Supermarket"
-        assert saved_expense.receipt_photo_id == "photo-abc-123"
-        assert saved_expense.user_id == 12345
+        # PTB download preserved: largest photo's file_id, raw bytes as source
+        context.bot.get_file.assert_awaited_once_with("photo-abc-123")
+        recording.record.assert_called_once_with(
+            RecordExpense(
+                user_id=12345,
+                source=b"receipt-image",
+                source_type="image",
+                mode=RecordingMode.CONVERSATIONAL,
+                receipt_photo_id="photo-abc-123",
+            )
+        )
 
         # Verify no correction was stored (complete extraction)
         assert store.get(12345) is None
@@ -131,30 +147,42 @@ class TestPhotoHandler:
         assert "Supermarket" in reply_text
 
     def test_partial_extraction_asks_for_missing(self) -> None:
-        """Photo with partial extraction asks user for missing fields."""
-        adapter = MagicMock()
-        adapter.extract.return_value = ExtractionResult(
+        """Photo with incomplete outcome sets pending correction and asks for missing fields."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            _make_photo_handler,
+        )
+        from expense_report.ports.expense_recording import (
+            ExtractionIncomplete,
+            RecordExpense,
+            RecordingMode,
+        )
+
+        partial = ExtractionResult(
             amount=Decimal("15.00"),
             currency=None,
             merchant=None,
             date=None,
             category=None,
         )
-        repo = MagicMock()
+        recording = MagicMock()
+        recording.record.return_value = ExtractionIncomplete(partial)
         store = CorrectionStore()  # real domain object
 
-        from expense_report.adapters.inbound.telegram_bot import (
-            _make_photo_handler,
-        )
-
-        handler = _make_photo_handler(adapter, repo, store)
+        handler = _make_photo_handler(recording, store)
         update = _make_update(photo_file_id="photo-456")
         context = _make_context(image_bytes=b"blurry-receipt")
 
         asyncio.run(handler(update, context))
 
-        adapter.extract.assert_called_once_with(b"blurry-receipt", "image")
-        repo.save.assert_not_called()
+        recording.record.assert_called_once_with(
+            RecordExpense(
+                user_id=12345,
+                source=b"blurry-receipt",
+                source_type="image",
+                mode=RecordingMode.CONVERSATIONAL,
+                receipt_photo_id="photo-456",
+            )
+        )
 
         # Verify correction was stored (real store, not mock assertion)
         pending = store.get(12345)
@@ -260,22 +288,9 @@ class TestSaveConfirmation:
     """Tests for save confirmation format including ID and delete button."""
 
     def test_save_confirmation_includes_id_and_delete_button(self) -> None:
-        """Successful save confirmation includes Expense #<id> and delete button."""
-        from expense_report.adapters.inbound.telegram_bot import _respond_to_extraction
-
-        mock_repo = MagicMock()
-        saved_expense = Expense(
-            id=42,
-            amount=Decimal("3.50"),
-            currency="EUR",
-            merchant="Central Cafe",
-            date=date(2026, 7, 12),
-            category="food",
-            user_id=12345,
-            receipt_photo_id=None,
-            created_at=datetime(2026, 7, 12, 12, 0, 0),
-        )
-        mock_repo.save.return_value = saved_expense
+        """Successful photo save confirmation includes Expense #<id> and delete button."""
+        from expense_report.adapters.inbound.telegram_bot import _make_photo_handler
+        from expense_report.ports.expense_recording import ExpenseRecorded
 
         result = ExtractionResult(
             amount=Decimal("3.50"),
@@ -284,12 +299,26 @@ class TestSaveConfirmation:
             date=date(2026, 7, 12),
             category="food",
         )
+        saved_expense = Expense(
+            id=42,
+            amount=Decimal("3.50"),
+            currency="EUR",
+            merchant="Central Cafe",
+            date=date(2026, 7, 12),
+            category="food",
+            user_id=12345,
+            receipt_photo_id="photo-abc-123",
+            created_at=datetime(2026, 7, 12, 12, 0, 0),
+        )
+        recording = MagicMock()
+        recording.record.return_value = ExpenseRecorded(saved_expense, result)
+        store = CorrectionStore()  # real domain object
 
-        update = _make_update()
+        handler = _make_photo_handler(recording, store)
+        update = _make_update(photo_file_id="photo-abc-123")
+        context = _make_context()
 
-        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2026, 7, 12, 12, 0, 0)
-            asyncio.run(_respond_to_extraction(update, result, mock_repo, receipt_photo_id=None))
+        asyncio.run(handler(update, context))
 
         # Verify reply_text was called with reply_markup containing delete button
         call_kwargs = update.effective_message.reply_text.call_args[1]
@@ -658,9 +687,10 @@ class TestCorrectionFlow:
     def test_photo_handler_partial_extraction_creates_pending_correction(
         self,
     ) -> None:
-        """Photo partial extraction stores pending correction before asking."""
-        adapter = MagicMock()
-        repo = MagicMock()
+        """Photo incomplete outcome stores pending correction before asking."""
+        from expense_report.ports.expense_recording import ExtractionIncomplete
+
+        recording = MagicMock()
         store = CorrectionStore()  # real store
 
         partial = ExtractionResult(
@@ -670,13 +700,13 @@ class TestCorrectionFlow:
             date=None,
             category=None,
         )
-        adapter.extract.return_value = partial
+        recording.record.return_value = ExtractionIncomplete(partial)
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_photo_handler,
         )
 
-        handler = _make_photo_handler(adapter, repo, store)
+        handler = _make_photo_handler(recording, store)
         update = _make_update(photo_file_id="photo-789")
         context = _make_context(image_bytes=b"receipt-img")
 
@@ -688,8 +718,6 @@ class TestCorrectionFlow:
         assert pending.original_result.amount == Decimal("25.00")
         assert pending.user_id == 12345
         assert pending.attempt_count == 1
-        # Verify repo was NOT saved
-        repo.save.assert_not_called()
         # Verify missing fields message was sent
         reply_text = update.effective_message.reply_text.call_args[0][0]
         assert "partial information" in reply_text
@@ -698,8 +726,9 @@ class TestCorrectionFlow:
         self,
     ) -> None:
         """Photo complete extraction does NOT create pending correction."""
-        adapter = MagicMock()
-        repo = MagicMock()
+        from expense_report.ports.expense_recording import ExpenseRecorded
+
+        recording = MagicMock()
         store = CorrectionStore()  # real store
 
         complete = ExtractionResult(
@@ -709,27 +738,35 @@ class TestCorrectionFlow:
             date=date(2026, 7, 22),
             category="transport",
         )
-        adapter.extract.return_value = complete
+        saved = Expense(
+            id=3,
+            amount=Decimal("30.00"),
+            currency="USD",
+            merchant="Gas Station",
+            date=date(2026, 7, 22),
+            category="transport",
+            user_id=12345,
+            receipt_photo_id="photo-101112",
+            created_at=datetime(2026, 7, 22, 9, 0, 0),
+        )
+        recording.record.return_value = ExpenseRecorded(saved, complete)
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_photo_handler,
         )
 
-        handler = _make_photo_handler(adapter, repo, store)
+        handler = _make_photo_handler(recording, store)
         update = _make_update(photo_file_id="photo-101112")
         context = _make_context(image_bytes=b"receipt-good")
 
-        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2026, 7, 22, 9, 0, 0)
-            asyncio.run(handler(update, context))
+        asyncio.run(handler(update, context))
 
         # Verify no correction was stored (real store check)
         assert store.get(12345) is None
-        # Verify repo was saved
-        repo.save.assert_called_once()
-        saved: Expense = repo.save.call_args[0][0]
-        assert saved.amount == Decimal("30.00")
-        assert saved.merchant == "Gas Station"
+        # Verify confirmation was rendered from the recorded outcome
+        reply_text = update.effective_message.reply_text.call_args[0][0]
+        assert "✅ Saved." in reply_text
+        assert "Gas Station" in reply_text
 
     def test_text_handler_without_pending_correction_normal_flow(
         self,

@@ -197,30 +197,41 @@ class TestPhotoHandlerLogging:
 
     def test_photo_handler_logs_received(self, caplog: pytest.LogCaptureFixture) -> None:
         """Photo handler logs photo received at INFO."""
-        adapter = MagicMock()
-        adapter.extract.return_value = ExtractionResult(
+        from expense_report.ports.expense_recording import ExpenseRecorded
+
+        result = ExtractionResult(
             amount=Decimal("42.50"),
             currency="EUR",
             merchant="Supermarket",
             date=date(2026, 7, 15),
             category="food",
         )
-        repo = MagicMock()
+        saved = Expense(
+            id=7,
+            amount=Decimal("42.50"),
+            currency="EUR",
+            merchant="Supermarket",
+            date=date(2026, 7, 15),
+            category="food",
+            user_id=12345,
+            receipt_photo_id="photo-abc",
+            created_at=datetime(2026, 7, 15, 12, 0, 0),
+        )
+        recording = MagicMock()
+        recording.record.return_value = ExpenseRecorded(saved, result)
         store = CorrectionStore()
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_photo_handler,
         )
 
-        handler = _make_photo_handler(adapter, repo, store)
+        handler = _make_photo_handler(recording, store)
         update = _make_update(user_id=12345, photo_file_id="photo-abc")
         context = _make_context()
 
         caplog.set_level(logging.DEBUG)
 
-        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
-            asyncio.run(handler(update, context))
+        asyncio.run(handler(update, context))
 
         records = [r for r in caplog.records if r.levelno >= logging.INFO]
         messages = " ".join(r.message for r in records)
@@ -231,30 +242,31 @@ class TestPhotoHandlerLogging:
 
     def test_photo_handler_logs_partial_extraction(self, caplog: pytest.LogCaptureFixture) -> None:
         """Photo handler logs partial extraction with missing fields at INFO."""
-        adapter = MagicMock()
-        adapter.extract.return_value = ExtractionResult(
-            amount=Decimal("15.00"),
-            currency=None,
-            merchant=None,
-            date=None,
-            category=None,
+        from expense_report.ports.expense_recording import ExtractionIncomplete
+
+        recording = MagicMock()
+        recording.record.return_value = ExtractionIncomplete(
+            ExtractionResult(
+                amount=Decimal("15.00"),
+                currency=None,
+                merchant=None,
+                date=None,
+                category=None,
+            )
         )
-        repo = MagicMock()
         store = CorrectionStore()
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_photo_handler,
         )
 
-        handler = _make_photo_handler(adapter, repo, store)
+        handler = _make_photo_handler(recording, store)
         update = _make_update(user_id=12345, photo_file_id="photo-partial")
         context = _make_context()
 
         caplog.set_level(logging.INFO)
 
-        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
-            asyncio.run(handler(update, context))
+        asyncio.run(handler(update, context))
 
         records = [r for r in caplog.records if r.levelno >= logging.INFO]
         messages = " ".join(r.message for r in records)
@@ -266,17 +278,17 @@ class TestPhotoHandlerLogging:
         )
 
     def test_photo_handler_logs_saved_once(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Complete photo extraction logs 'Saved expense' exactly once (no duplicate)."""
-        adapter = MagicMock()
-        adapter.extract.return_value = ExtractionResult(
+        """Complete photo recording logs 'Saved expense' exactly once (no duplicate)."""
+        from expense_report.ports.expense_recording import ExpenseRecorded
+
+        result = ExtractionResult(
             amount=Decimal("42.50"),
             currency="EUR",
             merchant="Supermarket",
             date=date(2026, 7, 15),
             category="food",
         )
-        repo = MagicMock()
-        mock_saved = Expense(
+        saved = Expense(
             id=42,
             amount=Decimal("42.50"),
             currency="EUR",
@@ -287,22 +299,21 @@ class TestPhotoHandlerLogging:
             receipt_photo_id="photo-abc",
             created_at=datetime(2026, 7, 15, 12, 0, 0),
         )
-        repo.save.return_value = mock_saved
+        recording = MagicMock()
+        recording.record.return_value = ExpenseRecorded(saved, result)
         store = CorrectionStore()
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_photo_handler,
         )
 
-        handler = _make_photo_handler(adapter, repo, store)
+        handler = _make_photo_handler(recording, store)
         update = _make_update(user_id=12345, photo_file_id="photo-abc")
         context = _make_context()
 
         caplog.set_level(logging.INFO)
 
-        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
-            asyncio.run(handler(update, context))
+        asyncio.run(handler(update, context))
 
         saved_logs = [r for r in caplog.records if "Saved expense" in r.message]
         assert len(saved_logs) == 1, (

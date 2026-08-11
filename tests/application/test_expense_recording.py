@@ -147,6 +147,76 @@ def test_repository_exception_propagates() -> None:
         use_case.record(RecordExpense(12345, "lunch", "text", RecordingMode.ONE_SHOT))
 
 
+@pytest.mark.parametrize("mode_name", ["ONE_SHOT", "CONVERSATIONAL"])
+def test_complete_image_records_expense_with_receipt_photo_id(mode_name: str) -> None:
+    from expense_report.application.expense_recording import ExpenseRecordingUseCase
+    from expense_report.ports.expense_recording import (
+        ExpenseRecorded,
+        RecordExpense,
+        RecordingMode,
+    )
+
+    extraction = MagicMock(spec=ExtractionPort)
+    extraction.extract.return_value = _complete_extraction()
+    repository = MagicMock(spec=ExpenseRepositoryPort)
+    repository.save.side_effect = lambda expense: replace(expense, id=42)
+    use_case = ExpenseRecordingUseCase(
+        cast(ExtractionPort, extraction),
+        cast(ExpenseRepositoryPort, repository),
+    )
+
+    outcome = use_case.record(
+        RecordExpense(
+            user_id=12345,
+            source=b"image bytes",
+            source_type="image",
+            mode=RecordingMode[mode_name],
+            receipt_photo_id="photo-file-id-123",
+        )
+    )
+
+    assert isinstance(outcome, ExpenseRecorded)
+    assert outcome.expense.id == 42
+    assert outcome.expense.receipt_photo_id == "photo-file-id-123"
+    extraction.extract.assert_called_once_with(b"image bytes", "image")
+
+    # Verify the Expense passed to repository.save carries the Receipt photo ID
+    saved_expense: Expense = repository.save.call_args.args[0]
+    assert saved_expense.id is None  # assigned by repository
+    assert saved_expense.receipt_photo_id == "photo-file-id-123"
+    assert saved_expense.user_id == 12345
+
+
+@pytest.mark.parametrize("mode_name", ["ONE_SHOT", "CONVERSATIONAL"])
+def test_incomplete_image_returns_without_persisting(mode_name: str) -> None:
+    from expense_report.application.expense_recording import ExpenseRecordingUseCase
+    from expense_report.ports.expense_recording import (
+        ExtractionIncomplete,
+        RecordExpense,
+        RecordingMode,
+    )
+
+    extraction = MagicMock(spec=ExtractionPort)
+    extraction.extract.return_value = _incomplete_extraction()
+    repository = MagicMock(spec=ExpenseRepositoryPort)
+    use_case = ExpenseRecordingUseCase(
+        cast(ExtractionPort, extraction),
+        cast(ExpenseRepositoryPort, repository),
+    )
+
+    outcome = use_case.record(
+        RecordExpense(
+            user_id=12345,
+            source=b"image bytes",
+            source_type="image",
+            mode=RecordingMode[mode_name],
+        )
+    )
+
+    assert outcome == ExtractionIncomplete(extraction=_incomplete_extraction())
+    repository.save.assert_not_called()
+
+
 def test_use_case_satisfies_expense_recording_port() -> None:
     from expense_report.application.expense_recording import ExpenseRecordingUseCase
     from expense_report.ports.expense_recording import ExpenseRecordingPort
