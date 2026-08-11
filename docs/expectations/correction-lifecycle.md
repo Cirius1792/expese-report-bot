@@ -141,7 +141,60 @@ Telegram adapter. Message content is pinned in tests, not the logger name.
     semantics (`attempt_count` starts at 1, max 3, `maxed_out` invariant) are preserved
     exactly.
 
+
+
 ## Evidence
 
-(to be filled in the evidence step — expectation-to-test mapping, red-state output, and
+### Final verification chain (HEAD a27637d)
+
+```
+$ uvx ruff format && uvx ruff check && uvx ty check && uv run pytest && uv run behave
+93 files left unchanged
+All checks passed!
+All checks passed!
+============================= 200 passed in 8.21s ==============================
+7 features passed, 0 failed, 0 skipped
+27 scenarios passed, 0 failed, 0 skipped
+217 steps passed, 0 failed, 0 skipped
+Took 0min 0.795s
+```
+
+### Expectation-to-Test Mapping
+
+| # | Expectation | Executed Evidence |
+|---|---|---|
+| 1 | CONVERSATIONAL text with NO pending: extract → complete → ExpenseRecorded (regression) | `test_complete_text_records_expense[CONVERSATIONAL]` (application) — record() called with `mode=CONVERSATIONAL`, `extract` invoked, saved expense preserved. |
+| 2 | CONVERSATIONAL text WITH pending (not maxed): refine → complete → save (receipt_photo_id=None), clear state → CorrectionResolved | `test_correction_resolve_saves_clears_and_returns_resolved` (application) — refine() called with the ORIGINAL partial result; extract() NOT called; saved Expense has `receipt_photo_id=None`; store cleared. |
+| 3 | CONVERSATIONAL incomplete WITHOUT pending → CorrectionOpened (attempt 1), state opened | `test_conversational_incomplete_opens_correction[lunch 15 eur-text-None]`, `[...image bytes-image-photo-file-id-123]` (application) — store holds PendingCorrection (attempt_count=1, original=partial result). |
+| 4 | Photo: fresh extract path regardless of pending; complete → ExpenseRecorded, pending untouched; incomplete → pending overwritten, CorrectionOpened | `test_complete_image_leaves_stale_pending_untouched` (application) — stale pending with attempt_count=2 survives a complete photo save. `test_incomplete_image_overwrites_stale_pending` (application) — stale pending with attempt_count=2 replaced by fresh attempt=1 PendingCorrection. |
+| 5 | Pending not maxed: refine incomplete → increment attempt, CorrectionStillIncomplete | `test_correction_still_incomplete_increments_attempt[1]` — 1→2; `[2]` — 2→3 (application) — refine called, save NOT called, store updated with incremented attempt. |
+| 6 | Pending maxed (attempt≥3): NO refine, state cleared, CorrectionLimitReached, nothing persisted | `test_correction_maxed_out_returns_limit_reached_without_refining` (application) — refine.assert_not_called(), extract.assert_not_called(), save.assert_not_called(), store cleared. |
+| 7 | ONE_SHOT never reads/writes correction state | `test_one_shot_incomplete_never_touches_correction_store` (application) — store.get/set/remove NEVER called. |
+| 8 | Exceptions from refine propagate | `test_refine_exception_propagates` (application) — RuntimeError raised, pending state untouched. |
+| 9 | Handler renders CorrectionResolved with "Updated and saved" | `TestCorrectionFlow::test_text_handler_renders_correction_resolved` (adapter) — "Updated and saved" in reply, delete button with correct callback_data. |
+| 10 | Handler renders CorrectionStillIncomplete with "still could not extract" | `TestCorrectionFlow::test_text_handler_renders_correction_still_incomplete` (adapter) — "still could not extract all fields", missing field names listed. |
+| 11 | Handler renders CorrectionLimitReached with "3 attempts" | `TestCorrectionFlow::test_text_handler_renders_correction_limit_reached` (adapter) — "3 attempts" in reply. |
+| 12 | Photo handler renders CorrectionOpened with "partial information" | `TestCorrectionFlow::test_photo_handler_renders_correction_opened` (adapter) — "partial information" in reply. |
+| 13 | register_handlers signature slimmed to 3 params | `TestRegisterHandlers::test_registers_all_handlers` (adapter) — passes with `register_handlers(app, recording, repository)`. |
+| 14 | Correction flow logs preserved (CorrectionReceived/Resolved/etc.) | `TestCorrectionLogging::test_correction_flow_logged` (logging) — "correction" or "refine" or "updated" in caplog via the use case. |
+| 15 | Text handler logs "Text received" for every text (transport-level) | `TestTextHandlerLogging::test_text_handler_logs_received` (logging) — "text" or "message" or "expense" in INFO logs. |
+| 16 | Behave regression: all 7 features / 27 scenarios unchanged | Full behave suite green; no feature-file changes. |
+
+### Red-state evidence (commit 7b6c5be)
+
+31 tests failed before implementation:
+- All 10 new application correction tests failed (use case not yet routing corrections)
+- 14 new/rewired adapter rendering tests failed (new handler signature not yet implemented)
+- 7 logging tests failed (old handler signatures + adapter setup)
+- 3 old TestCorrectionFlow tests failed (CorrectionStore import removed; these were replaced)
+
+### Production code changes
+
+- `application/expense_recording.py`: CorrectionStore dependency; single record() operation with correction routing (one_shot vs conversational text vs image fresh); log workflow events.
+- `application/correction_state.py`: moval of CorrectionStore (ARCH-005 partial).
+- `ports/expense_recording.py`: CorrectionOpened, CorrectionResolved, CorrectionStillIncomplete, CorrectionLimitReached added.
+- `telegram_bot.py`: _make_text_handler(expense_recording) only; _make_photo_handler(expense_recording) only; _handle_correction deleted; _reply_with_resolved_correction helper; register_handlers(app, expense_recording, repository).
+- `main.py`, `cli_extraction.py`: new composition contracts.
+- Behave step files: updated handler signatures and use-case construction.
+ — expectation-to-test mapping, red-state output, and
 the final full verification chain output)
