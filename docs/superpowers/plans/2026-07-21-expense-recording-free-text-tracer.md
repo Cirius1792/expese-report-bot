@@ -245,9 +245,7 @@ def test_extraction_exception_propagates() -> None:
     )
 
     with pytest.raises(RuntimeError, match="extract failed"):
-        use_case.record(
-            RecordExpense(12345, "lunch", "text", RecordingMode.ONE_SHOT)
-        )
+        use_case.record(RecordExpense(12345, "lunch", "text", RecordingMode.ONE_SHOT))
 
 
 def test_repository_exception_propagates() -> None:
@@ -264,9 +262,7 @@ def test_repository_exception_propagates() -> None:
     )
 
     with pytest.raises(RuntimeError, match="save failed"):
-        use_case.record(
-            RecordExpense(12345, "lunch", "text", RecordingMode.ONE_SHOT)
-        )
+        use_case.record(RecordExpense(12345, "lunch", "text", RecordingMode.ONE_SHOT))
 ```
 
 - [ ] **Step 2: Run the focused tests to prove RED**
@@ -832,41 +828,43 @@ Append to `TestMainSociable` in `tests/adapters/inbound/test_cli_extraction.py`:
 Append this incomplete rendering test:
 
 ```python
-    def test_text_flow_renders_incomplete_without_saving(
-        self,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        from expense_report.domain.models import ExtractionResult
-        from expense_report.ports.expense_recording import ExtractionIncomplete
+def test_text_flow_renders_incomplete_without_saving(
+    self,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from expense_report.domain.models import ExtractionResult
+    from expense_report.ports.expense_recording import ExtractionIncomplete
 
-        result = ExtractionResult(
-            amount=Decimal("15.00"),
-            currency="EUR",
-            merchant=None,
-            date=date(2026, 7, 15),
-            category=None,
-        )
+    result = ExtractionResult(
+        amount=Decimal("15.00"),
+        currency="EUR",
+        merchant=None,
+        date=date(2026, 7, 15),
+        category=None,
+    )
 
-        with (
-            patch("expense_report.adapters.out.dspy_extraction.DspyExtractionAdapter"),
-            patch("expense_report.adapters.out.sqlite_repository.SqliteExpenseRepository") as repo_class,
-            patch(
-                "expense_report.application.expense_recording.ExpenseRecordingUseCase"
-            ) as use_case_class,
-            patch(
-                "sys.argv",
-                ["expense-extract", "extract-from-text", "15 eur"],
-            ),
-        ):
-            use_case_class.return_value.record.return_value = ExtractionIncomplete(result)
-            from expense_report.adapters.inbound.cli_extraction import main
+    with (
+        patch("expense_report.adapters.out.dspy_extraction.DspyExtractionAdapter"),
+        patch(
+            "expense_report.adapters.out.sqlite_repository.SqliteExpenseRepository"
+        ) as repo_class,
+        patch(
+            "expense_report.application.expense_recording.ExpenseRecordingUseCase"
+        ) as use_case_class,
+        patch(
+            "sys.argv",
+            ["expense-extract", "extract-from-text", "15 eur"],
+        ),
+    ):
+        use_case_class.return_value.record.return_value = ExtractionIncomplete(result)
+        from expense_report.adapters.inbound.cli_extraction import main
 
-            main()
+        main()
 
-        captured = capsys.readouterr()
-        assert "Complete: False" in captured.out
-        assert "Extraction incomplete — not saved." in captured.out
-        repo_class.return_value.save.assert_not_called()
+    captured = capsys.readouterr()
+    assert "Complete: False" in captured.out
+    assert "Extraction incomplete — not saved." in captured.out
+    repo_class.return_value.save.assert_not_called()
 ```
 
 

@@ -71,9 +71,11 @@ class ExpenseRecorded:
     expense: Expense
     extraction: ExtractionResult
 
+
 @dataclass(frozen=True)
 class ExtractionIncomplete:
     extraction: ExtractionResult
+
 
 RecordingOutcome = ExpenseRecorded | ExtractionIncomplete
 ```

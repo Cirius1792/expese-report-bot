@@ -62,37 +62,41 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-@given('I am on the login page')
+
+@given("I am on the login page")
 def step_on_login(context):
-    context.browser.get(context.base_url + '/login')
+    context.browser.get(context.base_url + "/login")
+
 
 @when('I enter "{text}" as email')
 def step_enter_email(context, text):
-    el = context.browser.find_element(By.ID, 'email')
+    el = context.browser.find_element(By.ID, "email")
     el.clear()
     el.send_keys(text)
+
 
 @when('I enter "{text}" as password')
 def step_enter_password(context, text):
-    el = context.browser.find_element(By.ID, 'password')
+    el = context.browser.find_element(By.ID, "password")
     el.clear()
     el.send_keys(text)
 
-@when('I click login')
+
+@when("I click login")
 def step_click_login(context):
     context.browser.find_element(By.CSS_SELECTOR, 'button[type="submit"]').click()
 
-@then('I should see the dashboard')
+
+@then("I should see the dashboard")
 def step_see_dashboard(context):
-    WebDriverWait(context.browser, 10).until(
-        EC.url_contains('/dashboard')
-    )
-    assert '/dashboard' in context.browser.current_url
+    WebDriverWait(context.browser, 10).until(EC.url_contains("/dashboard"))
+    assert "/dashboard" in context.browser.current_url
+
 
 @then('I should see error "{msg}"')
 def step_see_error(context, msg):
     error = WebDriverWait(context.browser, 5).until(
-        EC.visibility_of_element_located((By.CSS_SELECTOR, '.error'))
+        EC.visibility_of_element_located((By.CSS_SELECTOR, ".error"))
     )
     assert msg in error.text
 ```
@@ -102,16 +106,19 @@ def step_see_error(context, msg):
 ```python
 from selenium import webdriver
 
+
 def before_all(context):
-    context.base_url = 'http://localhost:3000'
+    context.base_url = "http://localhost:3000"
+
 
 def before_scenario(context, scenario):
     context.browser = webdriver.Chrome()
     context.browser.implicitly_wait(10)
 
+
 def after_scenario(context, scenario):
-    if scenario.status == 'failed':
-        context.browser.save_screenshot(f'screenshots/{scenario.name}.png')
+    if scenario.status == "failed":
+        context.browser.save_screenshot(f"screenshots/{scenario.name}.png")
     context.browser.quit()
 ```
 
@@ -140,6 +147,7 @@ Set environment variables: `LT_USERNAME`, `LT_ACCESS_KEY`
 # environment.py
 from selenium import webdriver
 import os
+
 
 def before_scenario(context, scenario):
     lt_options = {

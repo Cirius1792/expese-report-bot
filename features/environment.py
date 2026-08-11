@@ -125,7 +125,8 @@ _sys.modules["telegram.ext"] = mock_ext
 
 # -- Now safe to import project modules --  # noqa: E402
 from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository  # noqa: E402
-from expense_report.domain.correction_state import CorrectionStore  # noqa: E402
+from expense_report.application.correction_state import CorrectionStore  # noqa: E402
+from expense_report.application.expense_queries import ExpenseQueryUseCase  # noqa: E402
 
 
 def before_all(context: "behave.runner.Context") -> None:
@@ -143,6 +144,7 @@ def before_scenario(context: "behave.runner.Context", scenario: "behave.model.Sc
 
     # Real correction store (domain object, not mocked)
     context.correction_store = CorrectionStore()
+    context.expense_queries = ExpenseQueryUseCase(context.repository)
 
     # Test data defaults
     context.user_id = 123456789

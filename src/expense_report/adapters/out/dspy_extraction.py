@@ -65,15 +65,20 @@ class DspyExtractionAdapter:
     Uses ChainOfThought with a custom Signature for structured extraction.
     """
 
-    def __init__(self) -> None:
-        base_url = os.environ["LLM_BASE_URL"]
-        api_key = os.environ["LLM_API_KEY"]
-        model = os.environ["LLM_MODEL"]
+    def __init__(
+        self,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        model: str | None = None,
+    ) -> None:
+        self._base_url = base_url if base_url is not None else os.environ["LLM_BASE_URL"]
+        self._api_key = api_key if api_key is not None else os.environ["LLM_API_KEY"]
+        self._model = model if model is not None else os.environ["LLM_MODEL"]
 
         self._lm = dspy.LM(
-            model=model,
-            api_key=api_key,
-            api_base=base_url,
+            model=self._model,
+            api_key=self._api_key,
+            api_base=self._base_url,
             max_tokens=500,
             temperature=0.0,
         )
@@ -204,8 +209,8 @@ class DspyExtractionAdapter:
         overhead exceeds the model's context window for vision tasks.
         """
         client = OpenAI(
-            base_url=os.environ["LLM_BASE_URL"],
-            api_key=os.environ["LLM_API_KEY"],
+            base_url=self._base_url,
+            api_key=self._api_key,
         )
         delays = [1, 2]
         last_exception: Exception | None = None
@@ -214,7 +219,7 @@ class DspyExtractionAdapter:
             try:
                 logger.debug("Image extraction attempt %s/3", attempt + 1)
                 response = client.chat.completions.create(
-                    model=os.environ["LLM_MODEL"].removeprefix("openai/"),
+                    model=self._model.removeprefix("openai/"),
                     messages=[
                         {
                             "role": "user",

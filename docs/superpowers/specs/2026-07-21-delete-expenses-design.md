@@ -170,11 +170,10 @@ The repository port should expose user-scoped operations for user-facing ID look
 Conceptual shape:
 
 ```python
-def get_by_id(self, user_id: int, expense_id: int) -> Expense | None:
-    ...
+def get_by_id(self, user_id: int, expense_id: int) -> Expense | None: ...
 
-def delete_by_id(self, user_id: int, expense_id: int) -> Expense | None:
-    ...
+
+def delete_by_id(self, user_id: int, expense_id: int) -> Expense | None: ...
 ```
 
 `delete_by_id` returns the deleted `Expense` so the Telegram adapter can format the success reply after the row is removed.

@@ -4,8 +4,11 @@ Uses mocked telegram module (set up in tests/conftest.py) and
 AsyncMock for async PTB API methods.
 
 Follows sociable unit test principles:
-- System boundaries mocked: Telegram API (PTB), LLM (extraction adapter mock), DB (repository mock)
-- Internal collaborators are real: CorrectionStore (domain class)
+- System boundaries mocked: Telegram API (PTB), application driving port
+  (ExpenseRecordingPort mock), DB (repository mock)
+- The Correction lifecycle is owned by the application use case and covered in
+  tests/application/test_expense_recording.py — these tests only verify
+  transport translation and rendering
 """
 
 from __future__ import annotations
@@ -17,8 +20,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from expense_report.domain.correction_state import CorrectionStore, PendingCorrection
 from expense_report.domain.models import Expense, ExtractionResult
+from expense_report.ports.expense_queries import DeletionResult, ExpenseQueryPort, PeriodSummary
 
 
 def _make_update(
@@ -54,6 +57,11 @@ def _make_context(
     return context
 
 
+def _make_queries_mock() -> MagicMock:
+    """Create a MagicMock(spec=ExpenseQueryPort) for adapter tests."""
+    return MagicMock(spec=ExpenseQueryPort)
+
+
 class TestStartHandler:
     """Tests for /start command handler."""
 
@@ -84,45 +92,57 @@ class TestStartHandler:
 
 
 class TestPhotoHandler:
-    """Tests for photo message handler."""
+    """Tests for photo message handler (Receipt recording through the driving port)."""
 
-    def test_complete_extraction_saves_and_confirms(self) -> None:
-        """Photo with complete extraction saves expense and replies with summary."""
-        adapter = MagicMock()
-        adapter.extract.return_value = ExtractionResult(
+    def test_complete_extraction_records_and_confirms(self) -> None:
+        """Photo is translated to a conversational image command; confirmation rendered."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            _make_photo_handler,
+        )
+        from expense_report.ports.expense_recording import (
+            ExpenseRecorded,
+            RecordExpense,
+            RecordingMode,
+        )
+
+        result = ExtractionResult(
             amount=Decimal("42.50"),
             currency="EUR",
             merchant="Supermarket",
             date=date(2026, 7, 15),
             category="food",
         )
-        repo = MagicMock()
-        store = CorrectionStore()  # real domain object
-
-        from expense_report.adapters.inbound.telegram_bot import (
-            _make_photo_handler,
+        saved = Expense(
+            id=1,
+            amount=Decimal("42.50"),
+            currency="EUR",
+            merchant="Supermarket",
+            date=date(2026, 7, 15),
+            category="food",
+            user_id=12345,
+            receipt_photo_id="photo-abc-123",
+            created_at=datetime(2026, 7, 15, 12, 0, 0),
         )
+        recording = MagicMock()
+        recording.record.return_value = ExpenseRecorded(saved, result)
 
-        handler = _make_photo_handler(adapter, repo, store)
+        handler = _make_photo_handler(recording)
         update = _make_update(photo_file_id="photo-abc-123")
         context = _make_context(image_bytes=b"receipt-image")
 
-        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
-            asyncio.run(handler(update, context))
+        asyncio.run(handler(update, context))
 
-        adapter.extract.assert_called_once_with(b"receipt-image", "image")
-        repo.save.assert_called_once()
-
-        saved_expense: Expense = repo.save.call_args[0][0]
-        assert isinstance(saved_expense, Expense)
-        assert saved_expense.amount == Decimal("42.50")
-        assert saved_expense.merchant == "Supermarket"
-        assert saved_expense.receipt_photo_id == "photo-abc-123"
-        assert saved_expense.user_id == 12345
-
-        # Verify no correction was stored (complete extraction)
-        assert store.get(12345) is None
+        # PTB download preserved: largest photo's file_id, raw bytes as source
+        context.bot.get_file.assert_awaited_once_with("photo-abc-123")
+        recording.record.assert_called_once_with(
+            RecordExpense(
+                user_id=12345,
+                source=b"receipt-image",
+                source_type="image",
+                mode=RecordingMode.CONVERSATIONAL,
+                receipt_photo_id="photo-abc-123",
+            )
+        )
 
         reply_text = update.effective_message.reply_text.call_args[0][0]
         assert "✅ Saved." in reply_text
@@ -131,48 +151,53 @@ class TestPhotoHandler:
         assert "Supermarket" in reply_text
 
     def test_partial_extraction_asks_for_missing(self) -> None:
-        """Photo with partial extraction asks user for missing fields."""
-        adapter = MagicMock()
-        adapter.extract.return_value = ExtractionResult(
+        """Photo with CorrectionOpened outcome renders the byte-identical partial prompt."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            _make_photo_handler,
+        )
+        from expense_report.ports.expense_recording import (
+            CorrectionOpened,
+            RecordExpense,
+            RecordingMode,
+        )
+
+        partial = ExtractionResult(
             amount=Decimal("15.00"),
             currency=None,
             merchant=None,
             date=None,
             category=None,
         )
-        repo = MagicMock()
-        store = CorrectionStore()  # real domain object
+        recording = MagicMock()
+        recording.record.return_value = CorrectionOpened(partial)
 
-        from expense_report.adapters.inbound.telegram_bot import (
-            _make_photo_handler,
-        )
-
-        handler = _make_photo_handler(adapter, repo, store)
+        handler = _make_photo_handler(recording)
         update = _make_update(photo_file_id="photo-456")
         context = _make_context(image_bytes=b"blurry-receipt")
 
         asyncio.run(handler(update, context))
 
-        adapter.extract.assert_called_once_with(b"blurry-receipt", "image")
-        repo.save.assert_not_called()
+        recording.record.assert_called_once_with(
+            RecordExpense(
+                user_id=12345,
+                source=b"blurry-receipt",
+                source_type="image",
+                mode=RecordingMode.CONVERSATIONAL,
+                receipt_photo_id="photo-456",
+            )
+        )
 
-        # Verify correction was stored (real store, not mock assertion)
-        pending = store.get(12345)
-        assert pending is not None
-        assert pending.user_id == 12345
-        assert pending.original_result.amount == Decimal("15.00")
-        assert pending.attempt_count == 1
-
+        # Byte-identical partial prompt; Correction state setup now happens
+        # inside the use case (covered in tests/application)
         reply_text = update.effective_message.reply_text.call_args[0][0]
-        assert "partial information" in reply_text
-        assert "currency" in reply_text
-        assert "merchant" in reply_text
-        assert "date" in reply_text
-        assert "amount" not in reply_text  # amount was provided
+        assert reply_text == (
+            "I extracted partial information. Please reply with the"
+            " missing details: currency, merchant, date"
+        )
 
 
 class TestTextHandler:
-    """Tests for text message handler."""
+    """Tests for text message handler (pure translation + rendering)."""
 
     def test_complete_extraction_calls_use_case_and_confirms(self) -> None:
         """New text is translated to a conversational recording command."""
@@ -203,10 +228,7 @@ class TestTextHandler:
         )
         recording = MagicMock()
         recording.record.return_value = ExpenseRecorded(saved, result)
-        extraction = MagicMock()
-        repository = MagicMock()
-        store = CorrectionStore()
-        handler = _make_text_handler(recording, extraction, repository, store)
+        handler = _make_text_handler(recording)
         update = _make_update(text="coffee 12.50 usd")
 
         asyncio.run(handler(update, MagicMock()))
@@ -220,15 +242,22 @@ class TestTextHandler:
                 receipt_photo_id=None,
             )
         )
-        extraction.extract.assert_not_called()
-        repository.save.assert_not_called()
-        assert "✅ Saved." in update.effective_message.reply_text.call_args[0][0]
-        assert "12.50 USD" in update.effective_message.reply_text.call_args[0][0]
+        reply_text = update.effective_message.reply_text.call_args[0][0]
+        assert reply_text == (
+            "📄 *Extracted expense:*\n"
+            "Expense #7\n"
+            "Amount: 12.50 USD\n"
+            "Merchant: Coffee Shop\n"
+            "Date: 2026-07-20\n"
+            "Category: food\n"
+            "\n"
+            "✅ Saved."
+        )
 
-    def test_partial_extraction_opens_existing_correction_state(self) -> None:
-        """An incomplete outcome opens the existing Telegram Correction state."""
+    def test_partial_extraction_renders_partial_prompt(self) -> None:
+        """CorrectionOpened from fresh text renders the byte-identical partial prompt."""
         from expense_report.adapters.inbound.telegram_bot import _make_text_handler
-        from expense_report.ports.expense_recording import ExtractionIncomplete
+        from expense_report.ports.expense_recording import CorrectionOpened
 
         partial = ExtractionResult(
             amount=None,
@@ -238,44 +267,28 @@ class TestTextHandler:
             category=None,
         )
         recording = MagicMock()
-        recording.record.return_value = ExtractionIncomplete(partial)
-        extraction = MagicMock()
-        repository = MagicMock()
-        store = CorrectionStore()
-        handler = _make_text_handler(recording, extraction, repository, store)
+        recording.record.return_value = CorrectionOpened(partial)
+        handler = _make_text_handler(recording)
         update = _make_update(text="something")
 
         asyncio.run(handler(update, MagicMock()))
 
-        repository.save.assert_not_called()
-        pending = store.get(12345)
-        assert pending is not None
-        assert pending.original_result == partial
+        # Byte-identical partial prompt; Correction state setup now happens
+        # inside the use case (covered in tests/application)
         reply = update.effective_message.reply_text.call_args[0][0]
-        assert "partial information" in reply
-        assert "amount" in reply
+        assert reply == (
+            "I extracted partial information. Please reply with the"
+            " missing details: amount, currency, merchant, date"
+        )
 
 
 class TestSaveConfirmation:
     """Tests for save confirmation format including ID and delete button."""
 
     def test_save_confirmation_includes_id_and_delete_button(self) -> None:
-        """Successful save confirmation includes Expense #<id> and delete button."""
-        from expense_report.adapters.inbound.telegram_bot import _respond_to_extraction
-
-        mock_repo = MagicMock()
-        saved_expense = Expense(
-            id=42,
-            amount=Decimal("3.50"),
-            currency="EUR",
-            merchant="Central Cafe",
-            date=date(2026, 7, 12),
-            category="food",
-            user_id=12345,
-            receipt_photo_id=None,
-            created_at=datetime(2026, 7, 12, 12, 0, 0),
-        )
-        mock_repo.save.return_value = saved_expense
+        """Successful photo save confirmation includes Expense #<id> and delete button."""
+        from expense_report.adapters.inbound.telegram_bot import _make_photo_handler
+        from expense_report.ports.expense_recording import ExpenseRecorded
 
         result = ExtractionResult(
             amount=Decimal("3.50"),
@@ -284,12 +297,25 @@ class TestSaveConfirmation:
             date=date(2026, 7, 12),
             category="food",
         )
+        saved_expense = Expense(
+            id=42,
+            amount=Decimal("3.50"),
+            currency="EUR",
+            merchant="Central Cafe",
+            date=date(2026, 7, 12),
+            category="food",
+            user_id=12345,
+            receipt_photo_id="photo-abc-123",
+            created_at=datetime(2026, 7, 12, 12, 0, 0),
+        )
+        recording = MagicMock()
+        recording.record.return_value = ExpenseRecorded(saved_expense, result)
 
-        update = _make_update()
+        handler = _make_photo_handler(recording)
+        update = _make_update(photo_file_id="photo-abc-123")
+        context = _make_context()
 
-        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2026, 7, 12, 12, 0, 0)
-            asyncio.run(_respond_to_extraction(update, result, mock_repo, receipt_photo_id=None))
+        asyncio.run(handler(update, context))
 
         # Verify reply_text was called with reply_markup containing delete button
         call_kwargs = update.effective_message.reply_text.call_args[1]
@@ -311,37 +337,17 @@ class TestReportHandler:
 
     def test_with_expenses_sends_csv(self) -> None:
         """Report with expenses sends CSV document and count message."""
-        repo = MagicMock()
-        repo.get_by_user_and_month.return_value = [
-            Expense(
-                id=1,
-                amount=Decimal("10.00"),
-                currency="EUR",
-                merchant="Shop A",
-                date=date(2026, 7, 1),
-                category="shopping",
-                user_id=12345,
-                receipt_photo_id=None,
-                created_at=datetime(2026, 7, 1, 10, 0, 0),
-            ),
-            Expense(
-                id=2,
-                amount=Decimal("20.50"),
-                currency="EUR",
-                merchant="Shop B",
-                date=date(2026, 7, 2),
-                category="food",
-                user_id=12345,
-                receipt_photo_id=None,
-                created_at=datetime(2026, 7, 2, 11, 0, 0),
-            ),
-        ]
+        queries = _make_queries_mock()
+        csv_str = "date,merchant,category,amount,currency\n"
+        csv_str += "2026-07-01,Shop A,shopping,10.00,EUR\n"
+        csv_str += "2026-07-02,Shop B,food,20.50,EUR\n"
+        queries.generate_csv_report.return_value = csv_str
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_report_handler,
         )
 
-        handler = _make_report_handler(repo)
+        handler = _make_report_handler(queries)
         update = _make_update()
         context = MagicMock()
 
@@ -349,7 +355,7 @@ class TestReportHandler:
             mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
             asyncio.run(handler(update, context))
 
-        repo.get_by_user_and_month.assert_called_once_with(12345, 2026, 7)
+        queries.generate_csv_report.assert_called_once_with(12345, 2026, 7)
 
         # Verify document was sent
         update.effective_message.reply_document.assert_awaited_once()
@@ -368,14 +374,14 @@ class TestReportHandler:
 
     def test_no_expenses_reports_empty(self) -> None:
         """Report with no expenses sends 'no expenses' message."""
-        repo = MagicMock()
-        repo.get_by_user_and_month.return_value = []
+        queries = _make_queries_mock()
+        queries.generate_csv_report.return_value = "date,merchant,category,amount,currency\n"
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_report_handler,
         )
 
-        handler = _make_report_handler(repo)
+        handler = _make_report_handler(queries)
         update = _make_update()
         context = MagicMock()
 
@@ -383,22 +389,22 @@ class TestReportHandler:
             mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
             asyncio.run(handler(update, context))
 
-        repo.get_by_user_and_month.assert_called_once_with(12345, 2026, 7)
+        queries.generate_csv_report.assert_called_once_with(12345, 2026, 7)
         update.effective_message.reply_document.assert_not_awaited()
 
         reply_text = update.effective_message.reply_text.call_args[0][0]
         assert "No expenses recorded for 2026-07" in reply_text
 
     def test_multi_user_isolation(self) -> None:
-        """Each user only sees their own expenses (user_id passed to repo)."""
-        repo = MagicMock()
-        repo.get_by_user_and_month.return_value = []
+        """Each user only sees their own expenses (user_id passed to queries)."""
+        queries = _make_queries_mock()
+        queries.generate_csv_report.return_value = "date,merchant,category,amount,currency\n"
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_report_handler,
         )
 
-        handler = _make_report_handler(repo)
+        handler = _make_report_handler(queries)
         update = _make_update(user_id=99999)
         context = MagicMock()
 
@@ -406,7 +412,7 @@ class TestReportHandler:
             mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
             asyncio.run(handler(update, context))
 
-        repo.get_by_user_and_month.assert_called_once_with(99999, 2026, 7)
+        queries.generate_csv_report.assert_called_once_with(99999, 2026, 7)
 
 
 class TestRegisterHandlers:
@@ -425,11 +431,9 @@ class TestRegisterHandlers:
 
         app = MagicMock()
         recording = MagicMock()
-        adapter = MagicMock()
-        repo = MagicMock()
-        store = CorrectionStore()  # real store
+        queries = _make_queries_mock()
 
-        register_handlers(app, recording, adapter, repo, store)
+        register_handlers(app, recording, queries)
 
         # Verify 8 handlers were registered
         assert app.add_handler.call_count == 8
@@ -486,309 +490,146 @@ class TestMissingFields:
 
 
 class TestCorrectionFlow:
-    """Tests for correction flow (partial extraction → user corrects → refine).
+    """Tests for correction outcome rendering through the port boundary.
 
-    Uses real CorrectionStore — tests verify state transitions through the
-    domain object, not mock assertions on the store.
+    The use case owns the Correction lifecycle (covered in tests/application/).
+    These tests verify the adapter renders each outcome type with the expected text.
     """
 
-    def test_text_handler_with_pending_correction_refine_complete_saves_and_removes(
-        self,
-    ) -> None:
-        """Text pending correction: refine completes → save, remove from store."""
-        recording = MagicMock()
-        adapter = MagicMock()
-        repo = MagicMock()
-        store = CorrectionStore()  # real store
-
-        # Setup: pre-populate with a pending correction
-        original = ExtractionResult(
-            amount=Decimal("15.00"),
-            currency=None,
-            merchant=None,
-            date=None,
-            category=None,
-        )
-        store.set(
-            12345, PendingCorrection(user_id=12345, original_result=original, attempt_count=1)
-        )
-
-        refined = ExtractionResult(
-            amount=Decimal("15.00"),
-            currency="EUR",
-            merchant="Cafe",
-            date=date(2026, 7, 20),
-            category=None,
-        )
-        adapter.refine.return_value = refined
-
+    def test_text_handler_renders_correction_resolved(self) -> None:
+        """CorrectionResolved → renders updated-expense confirmation with delete button."""
         from expense_report.adapters.inbound.telegram_bot import (
             _make_text_handler,
         )
-
-        handler = _make_text_handler(recording, adapter, repo, store)
-        update = _make_update(text="Cafe EUR 15")
-        context = MagicMock()
-
-        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2026, 7, 20, 14, 0, 0)
-            asyncio.run(handler(update, context))
-
-        recording.record.assert_not_called()
-        # Verify refine was called with original + correction text
-        adapter.refine.assert_called_once_with(original, "Cafe EUR 15")
-        # Verify complete result was saved
-        repo.save.assert_called_once()
-        saved: Expense = repo.save.call_args[0][0]
-        assert saved.amount == Decimal("15.00")
-        assert saved.merchant == "Cafe"
-        # Verify store was cleared (real store check)
-        assert store.get(12345) is None
-        # Verify confirmation message
-        reply_text = update.effective_message.reply_text.call_args[0][0]
-        assert "Updated and saved" in reply_text
-
-    def test_text_handler_with_pending_correction_still_incomplete_asks_again(
-        self,
-    ) -> None:
-        """Text pending correction: refine still incomplete → ask again, increment attempt."""
-        recording = MagicMock()
-        adapter = MagicMock()
-        repo = MagicMock()
-        store = CorrectionStore()  # real store
-
-        original = ExtractionResult(
-            amount=Decimal("15.00"),
-            currency=None,
-            merchant=None,
-            date=None,
-            category=None,
-        )
-        store.set(
-            12345, PendingCorrection(user_id=12345, original_result=original, attempt_count=1)
-        )
-
-        # Refine result still missing currency, date
-        refined = ExtractionResult(
-            amount=Decimal("15.00"),
-            currency=None,
-            merchant="Cafe",
-            date=None,
-            category=None,
-        )
-        adapter.refine.return_value = refined
-
-        from expense_report.adapters.inbound.telegram_bot import (
-            _make_text_handler,
-        )
-
-        handler = _make_text_handler(recording, adapter, repo, store)
-        update = _make_update(text="Cafe")
-        context = MagicMock()
-
-        asyncio.run(handler(update, context))
-
-        recording.record.assert_not_called()
-        # Verify refine was called
-        adapter.refine.assert_called_once_with(original, "Cafe")
-        # Verify not saved
-        repo.save.assert_not_called()
-        # Verify store was updated with incremented attempt (real store check)
-        pending = store.get(12345)
-        assert pending is not None
-        assert pending.attempt_count == 2
-        assert pending.original_result.amount == Decimal("15.00")
-        # Verify reply asks for missing fields again
-        reply_text = update.effective_message.reply_text.call_args[0][0]
-        assert "partial" in reply_text or "missing" in reply_text
-        assert "currency" in reply_text
-        assert "date" in reply_text
-
-    def test_text_handler_with_pending_correction_maxed_out_removes_and_fails(
-        self,
-    ) -> None:
-        """Text pending correction: maxed out (3rd attempt) → remove, send failure."""
-        recording = MagicMock()
-        adapter = MagicMock()
-        repo = MagicMock()
-        store = CorrectionStore()  # real store
-
-        original = ExtractionResult(
-            amount=Decimal("15.00"),
-            currency=None,
-            merchant=None,
-            date=None,
-            category=None,
-        )
-        store.set(
-            12345, PendingCorrection(user_id=12345, original_result=original, attempt_count=3)
-        )
-
-        # Even a perfect refine result — but 3 attempts already exhausted
-        refined = ExtractionResult(
-            amount=Decimal("15.00"),
-            currency="EUR",
-            merchant="Cafe",
-            date=date(2026, 7, 20),
-            category=None,
-        )
-        adapter.refine.return_value = refined
-
-        from expense_report.adapters.inbound.telegram_bot import (
-            _make_text_handler,
-        )
-
-        handler = _make_text_handler(recording, adapter, repo, store)
-        update = _make_update(text="Cafe EUR 2026-07-20")
-        context = MagicMock()
-
-        asyncio.run(handler(update, context))
-
-        recording.record.assert_not_called()
-        # Verify refine was NOT called (we maxed out before the attempt)
-        adapter.refine.assert_not_called()
-        # Verify not saved
-        repo.save.assert_not_called()
-        # Verify store was removed (real store check)
-        assert store.get(12345) is None
-        # Verify failure message
-        reply_text = update.effective_message.reply_text.call_args[0][0]
-        assert "3 attempts" in reply_text or "could not complete" in reply_text
-
-    def test_photo_handler_partial_extraction_creates_pending_correction(
-        self,
-    ) -> None:
-        """Photo partial extraction stores pending correction before asking."""
-        adapter = MagicMock()
-        repo = MagicMock()
-        store = CorrectionStore()  # real store
-
-        partial = ExtractionResult(
-            amount=Decimal("25.00"),
-            currency=None,
-            merchant=None,
-            date=None,
-            category=None,
-        )
-        adapter.extract.return_value = partial
-
-        from expense_report.adapters.inbound.telegram_bot import (
-            _make_photo_handler,
-        )
-
-        handler = _make_photo_handler(adapter, repo, store)
-        update = _make_update(photo_file_id="photo-789")
-        context = _make_context(image_bytes=b"receipt-img")
-
-        asyncio.run(handler(update, context))
-
-        # Verify correction was stored (real store check)
-        pending = store.get(12345)
-        assert pending is not None
-        assert pending.original_result.amount == Decimal("25.00")
-        assert pending.user_id == 12345
-        assert pending.attempt_count == 1
-        # Verify repo was NOT saved
-        repo.save.assert_not_called()
-        # Verify missing fields message was sent
-        reply_text = update.effective_message.reply_text.call_args[0][0]
-        assert "partial information" in reply_text
-
-    def test_photo_handler_complete_extraction_no_pending_correction(
-        self,
-    ) -> None:
-        """Photo complete extraction does NOT create pending correction."""
-        adapter = MagicMock()
-        repo = MagicMock()
-        store = CorrectionStore()  # real store
-
-        complete = ExtractionResult(
-            amount=Decimal("30.00"),
-            currency="USD",
-            merchant="Gas Station",
-            date=date(2026, 7, 22),
-            category="transport",
-        )
-        adapter.extract.return_value = complete
-
-        from expense_report.adapters.inbound.telegram_bot import (
-            _make_photo_handler,
-        )
-
-        handler = _make_photo_handler(adapter, repo, store)
-        update = _make_update(photo_file_id="photo-101112")
-        context = _make_context(image_bytes=b"receipt-good")
-
-        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2026, 7, 22, 9, 0, 0)
-            asyncio.run(handler(update, context))
-
-        # Verify no correction was stored (real store check)
-        assert store.get(12345) is None
-        # Verify repo was saved
-        repo.save.assert_called_once()
-        saved: Expense = repo.save.call_args[0][0]
-        assert saved.amount == Decimal("30.00")
-        assert saved.merchant == "Gas Station"
-
-    def test_text_handler_without_pending_correction_normal_flow(
-        self,
-    ) -> None:
-        """Text handler without pending correction: normal new expense extraction."""
         from expense_report.ports.expense_recording import (
-            ExpenseRecorded,
+            CorrectionResolved,
             RecordExpense,
             RecordingMode,
         )
 
         result = ExtractionResult(
-            amount=Decimal("12.50"),
-            currency="USD",
-            merchant="Coffee Shop",
+            amount=Decimal("15.00"),
+            currency="EUR",
+            merchant="Cafe",
             date=date(2026, 7, 20),
-            category="food",
+            category=None,
         )
-        saved = Expense(
-            id=7,
-            amount=Decimal("12.50"),
-            currency="USD",
-            merchant="Coffee Shop",
+        saved_expense = Expense(
+            id=42,
+            amount=Decimal("15.00"),
+            currency="EUR",
+            merchant="Cafe",
             date=date(2026, 7, 20),
-            category="food",
+            category=None,
             user_id=12345,
             receipt_photo_id=None,
             created_at=datetime(2026, 7, 20, 14, 0, 0),
         )
         recording = MagicMock()
-        recording.record.return_value = ExpenseRecorded(saved, result)
-        adapter = MagicMock()
-        repo = MagicMock()
-        store = CorrectionStore()  # real store, empty (no pending correction)
+        recording.record.return_value = CorrectionResolved(saved_expense, result)
+        handler = _make_text_handler(recording)
+        update = _make_update(text="Cafe EUR 15")
 
+        asyncio.run(handler(update, MagicMock()))
+
+        recording.record.assert_called_once_with(
+            RecordExpense(
+                user_id=12345,
+                source="Cafe EUR 15",
+                source_type="text",
+                mode=RecordingMode.CONVERSATIONAL,
+                receipt_photo_id=None,
+            )
+        )
+        reply_text = update.effective_message.reply_text.call_args[0][0]
+        assert "Updated and saved" in reply_text
+        assert "Expense #42" in reply_text
+        assert "Cafe" in reply_text
+
+    def test_text_handler_renders_correction_still_incomplete(self) -> None:
+        """CorrectionStillIncomplete → renders missing-fields prompt."""
         from expense_report.adapters.inbound.telegram_bot import (
             _make_text_handler,
         )
+        from expense_report.ports.expense_recording import (
+            CorrectionStillIncomplete,
+        )
 
-        handler = _make_text_handler(recording, adapter, repo, store)
-        update = _make_update(text="coffee 12.50 usd")
-        context = MagicMock()
+        result = ExtractionResult(
+            amount=Decimal("15.00"),
+            currency=None,
+            merchant="Cafe",
+            date=None,
+            category=None,
+        )
+        recording = MagicMock()
+        recording.record.return_value = CorrectionStillIncomplete(result, attempt_count=2)
+        handler = _make_text_handler(recording)
+        update = _make_update(text="Cafe")
+
+        asyncio.run(handler(update, MagicMock()))
+
+        reply_text = update.effective_message.reply_text.call_args[0][0]
+        assert "still could not extract" in reply_text
+        assert "currency" in reply_text
+        assert "date" in reply_text
+
+    def test_text_handler_renders_correction_limit_reached(self) -> None:
+        """CorrectionLimitReached → renders max-attempts message."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            _make_text_handler,
+        )
+        from expense_report.ports.expense_recording import (
+            CorrectionLimitReached,
+        )
+
+        recording = MagicMock()
+        recording.record.return_value = CorrectionLimitReached()
+        handler = _make_text_handler(recording)
+        update = _make_update(text="final attempt")
+
+        asyncio.run(handler(update, MagicMock()))
+
+        reply_text = update.effective_message.reply_text.call_args[0][0]
+        assert "3 attempts" in reply_text
+
+    def test_photo_handler_renders_correction_opened(self) -> None:
+        """CorrectionOpened from photo → renders partial-information prompt."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            _make_photo_handler,
+        )
+        from expense_report.ports.expense_recording import (
+            CorrectionOpened,
+            RecordExpense,
+            RecordingMode,
+        )
+
+        partial = ExtractionResult(
+            amount=Decimal("15.00"),
+            currency=None,
+            merchant=None,
+            date=None,
+            category=None,
+        )
+        recording = MagicMock()
+        recording.record.return_value = CorrectionOpened(partial)
+        handler = _make_photo_handler(recording)
+        update = _make_update(photo_file_id="photo-456")
+        context = _make_context(image_bytes=b"blurry-receipt")
 
         asyncio.run(handler(update, context))
 
         recording.record.assert_called_once_with(
             RecordExpense(
                 user_id=12345,
-                source="coffee 12.50 usd",
-                source_type="text",
+                source=b"blurry-receipt",
+                source_type="image",
                 mode=RecordingMode.CONVERSATIONAL,
-                receipt_photo_id=None,
+                receipt_photo_id="photo-456",
             )
         )
-        # Verify store was never touched (real store check)
-        assert store.get(12345) is None
-        # Verify confirmation
         reply_text = update.effective_message.reply_text.call_args[0][0]
-        assert "✅ Saved." in reply_text
+        assert "partial information" in reply_text
 
 
 class TestListHandler:
@@ -796,9 +637,13 @@ class TestListHandler:
 
     def test_shows_current_month_expenses_and_total(self) -> None:
         """List handler shows current month expenses and total."""
-        repo = MagicMock()
-        repo.get_months_with_expenses.return_value = {7, 3}
-        repo.get_by_user_and_month.return_value = [
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={2026: {7, 3}},
+            active_year=2026,
+            active_month=7,
+        )
+        queries.get_month_expenses.return_value = [
             Expense(
                 id=1,
                 amount=Decimal("42.50"),
@@ -825,7 +670,7 @@ class TestListHandler:
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_handler
 
-        handler = _make_list_handler(repo)
+        handler = _make_list_handler(queries)
         update = _make_update()
         context = MagicMock()
 
@@ -833,9 +678,8 @@ class TestListHandler:
             mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
             asyncio.run(handler(update, context))
 
-        repo.get_months_with_expenses.assert_any_call(12345, 2026)
-        repo.get_months_with_expenses.assert_any_call(12345, 2025)
-        repo.get_by_user_and_month.assert_called_once_with(12345, 2026, 7)
+        queries.discover_periods.assert_called_once_with(12345)
+        queries.get_month_expenses.assert_called_once_with(12345, 2026, 7)
 
         # Verify reply includes expense data and total
         reply_text = update.effective_message.reply_text.call_args[0][0]
@@ -850,12 +694,13 @@ class TestListHandler:
     def test_shows_current_month_and_year_buttons(self) -> None:
         """List handler generates correct inline button labels."""
 
-        repo = MagicMock()
-        repo.get_months_with_expenses.side_effect = [
-            {7, 3},  # 2026
-            set(),  # 2025 (none)
-        ]
-        repo.get_by_user_and_month.return_value = [
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={2026: {7, 3}},
+            active_year=2026,
+            active_month=7,
+        )
+        queries.get_month_expenses.return_value = [
             Expense(
                 id=1,
                 amount=Decimal("42.50"),
@@ -871,7 +716,7 @@ class TestListHandler:
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_handler
 
-        handler = _make_list_handler(repo)
+        handler = _make_list_handler(queries)
         update = _make_update()
         context = MagicMock()
 
@@ -895,12 +740,13 @@ class TestListHandler:
 
     def test_previous_year_button_when_expenses_exist(self) -> None:
         """Both 2026 and 2025 buttons shown when both years have expenses."""
-        repo = MagicMock()
-        repo.get_months_with_expenses.side_effect = [
-            {7},  # 2026
-            {12, 1},  # 2025
-        ]
-        repo.get_by_user_and_month.return_value = [
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={2026: {7}, 2025: {12, 1}},
+            active_year=2026,
+            active_month=7,
+        )
+        queries.get_month_expenses.return_value = [
             Expense(
                 id=2,
                 amount=Decimal("10.00"),
@@ -916,7 +762,7 @@ class TestListHandler:
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_handler
 
-        handler = _make_list_handler(repo)
+        handler = _make_list_handler(queries)
         update = _make_update()
         context = MagicMock()
 
@@ -932,15 +778,16 @@ class TestListHandler:
 
     def test_no_expenses_shows_informative_message(self) -> None:
         """When no expenses exist at all, show message without buttons."""
-        repo = MagicMock()
-        repo.get_months_with_expenses.side_effect = [
-            set(),  # 2026
-            set(),  # 2025
-        ]
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={},
+            active_year=2026,
+            active_month=7,
+        )
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_handler
 
-        handler = _make_list_handler(repo)
+        handler = _make_list_handler(queries)
         update = _make_update()
         context = MagicMock()
 
@@ -954,12 +801,13 @@ class TestListHandler:
 
     def test_previous_year_only_shows_that_year(self) -> None:
         """When user has expenses only in previous year, shows that year's data."""
-        repo = MagicMock()
-        repo.get_months_with_expenses.side_effect = [
-            set(),  # 2026 — no data
-            {12},  # 2025 — only December
-        ]
-        repo.get_by_user_and_month.return_value = [
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={2025: {12}},
+            active_year=2025,
+            active_month=12,
+        )
+        queries.get_month_expenses.return_value = [
             Expense(
                 id=3,
                 amount=Decimal("15.00"),
@@ -975,7 +823,7 @@ class TestListHandler:
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_handler
 
-        handler = _make_list_handler(repo)
+        handler = _make_list_handler(queries)
         update = _make_update()
         context = MagicMock()
 
@@ -984,7 +832,7 @@ class TestListHandler:
             asyncio.run(handler(update, context))
 
         # Should query 2025-12, not current 2026-07
-        repo.get_by_user_and_month.assert_called_once_with(12345, 2025, 12)
+        queries.get_month_expenses.assert_called_once_with(12345, 2025, 12)
 
         markup = update.effective_message.reply_text.call_args[1]["reply_markup"]
         keyboard = markup.inline_keyboard
@@ -994,17 +842,18 @@ class TestListHandler:
         assert month_buttons == ["Dec"]
 
     def test_multi_user_isolation(self) -> None:
-        """User 99999 sees a different user_id passed to repo."""
-        repo = MagicMock()
-        repo.get_months_with_expenses.side_effect = [
-            {7},
-            set(),
-        ]
-        repo.get_by_user_and_month.return_value = []
+        """User 99999 sees a different user_id passed to queries."""
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={2026: {7}},
+            active_year=2026,
+            active_month=7,
+        )
+        queries.get_month_expenses.return_value = []
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_handler
 
-        handler = _make_list_handler(repo)
+        handler = _make_list_handler(queries)
         update = _make_update(user_id=99999)
         context = MagicMock()
 
@@ -1012,8 +861,8 @@ class TestListHandler:
             mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
             asyncio.run(handler(update, context))
 
-        repo.get_months_with_expenses.assert_any_call(99999, 2026)
-        repo.get_by_user_and_month.assert_called_once_with(99999, 2026, 7)
+        queries.discover_periods.assert_called_once_with(99999)
+        queries.get_month_expenses.assert_called_once_with(99999, 2026, 7)
 
     def test_format_month_view_includes_expense_ids(self) -> None:
         """Month view shows integer expense IDs for /delete reference."""
@@ -1062,8 +911,13 @@ class TestListCallbackHandler:
 
     def test_month_callback_updates_message(self) -> None:
         """Tapping a month button edits the message to show that month."""
-        repo = MagicMock()
-        repo.get_by_user_and_month.return_value = [
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={2026: {7, 3}},
+            active_year=2026,
+            active_month=7,
+        )
+        queries.get_month_expenses.return_value = [
             Expense(
                 id=4,
                 amount=Decimal("30.00"),
@@ -1076,14 +930,9 @@ class TestListCallbackHandler:
                 created_at=datetime(2026, 3, 5, 10, 0, 0),
             ),
         ]
-        repo.get_months_with_expenses.side_effect = lambda uid, year: {
-            2026: {7, 3},
-            2025: set(),
-        }.get(year, set())
-
         from expense_report.adapters.inbound.telegram_bot import _make_list_callback_handler
 
-        handler = _make_list_callback_handler(repo)
+        handler = _make_list_callback_handler(queries)
         update = _make_callback_update(callback_data="month:2026:3")
         context = MagicMock()
 
@@ -1095,7 +944,7 @@ class TestListCallbackHandler:
         update.callback_query.answer.assert_awaited_once()
 
         # Verify repository was called for the correct month
-        repo.get_by_user_and_month.assert_called_once_with(12345, 2026, 3)
+        queries.get_month_expenses.assert_called_once_with(12345, 2026, 3)
 
         # Verify edit_message_text was called with expense data
         edit_call = update.callback_query.edit_message_text.call_args[1]
@@ -1111,9 +960,13 @@ class TestListCallbackHandler:
 
     def test_year_callback_shows_year_total(self) -> None:
         """Tapping a year button shows year aggregate grouped by currency."""
-        repo = MagicMock()
-        # get_by_user_and_month returns expenses for each month
-        repo.get_by_user_and_month.return_value = [
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={2025: {12}},
+            active_year=2025,
+            active_month=12,
+        )
+        queries.get_year_expenses.return_value = [
             Expense(
                 id=5,
                 amount=Decimal("10.00"),
@@ -1137,11 +990,9 @@ class TestListCallbackHandler:
                 created_at=datetime(2025, 12, 10, 10, 0, 0),
             ),
         ]
-        repo.get_months_with_expenses.return_value = {12}
-
         from expense_report.adapters.inbound.telegram_bot import _make_list_callback_handler
 
-        handler = _make_list_callback_handler(repo)
+        handler = _make_list_callback_handler(queries)
         update = _make_callback_update(callback_data="year:2025")
         context = MagicMock()
 
@@ -1163,16 +1014,17 @@ class TestListCallbackHandler:
 
     def test_month_callback_on_empty_month_shows_no_expenses_message(self) -> None:
         """Month with no expense rows shows informative text."""
-        repo = MagicMock()
-        repo.get_by_user_and_month.return_value = []
-        repo.get_months_with_expenses.side_effect = lambda uid, year: {
-            2026: {7},
-            2025: set(),
-        }.get(year, set())
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={2026: {7}},
+            active_year=2026,
+            active_month=7,
+        )
+        queries.get_month_expenses.return_value = []
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_callback_handler
 
-        handler = _make_list_callback_handler(repo)
+        handler = _make_list_callback_handler(queries)
         update = _make_callback_update(callback_data="month:2026:3")
         context = MagicMock()
 
@@ -1195,12 +1047,11 @@ class TestListCallbackHandler:
     )
     def test_malformed_callback_data_does_not_crash(self, bad_data: str) -> None:
         """Invalid callback_data is logged and ignored without exception."""
-        repo = MagicMock()
-        repo.get_months_with_expenses.return_value = set()
+        queries = _make_queries_mock()
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_callback_handler
 
-        handler = _make_list_callback_handler(repo)
+        handler = _make_list_callback_handler(queries)
         update = _make_callback_update(callback_data=bad_data)
         context = MagicMock()
 
@@ -1221,7 +1072,7 @@ class TestDeleteCallbackHandler:
         """Delete button callback edits the original message with strikethrough."""
         from expense_report.adapters.inbound.telegram_bot import _make_delete_callback_handler
 
-        mock_repo = MagicMock()
+        mock_queries = _make_queries_mock()
         deleted_expense = Expense(
             id=1,
             amount=Decimal("3.50"),
@@ -1233,9 +1084,9 @@ class TestDeleteCallbackHandler:
             receipt_photo_id=None,
             created_at=datetime(2026, 7, 12, 12, 0, 0),
         )
-        mock_repo.delete_by_id.return_value = deleted_expense
+        mock_queries.delete_expense.return_value = DeletionResult(deleted=deleted_expense)
 
-        handler = _make_delete_callback_handler(mock_repo)
+        handler = _make_delete_callback_handler(mock_queries)
         update = MagicMock()
         query = MagicMock()
         query.data = "delete:1"
@@ -1273,10 +1124,10 @@ class TestDeleteCallbackHandler:
         """When expense not found, answers callback and does NOT edit message."""
         from expense_report.adapters.inbound.telegram_bot import _make_delete_callback_handler
 
-        mock_repo = MagicMock()
-        mock_repo.delete_by_id.return_value = None
+        mock_queries = _make_queries_mock()
+        mock_queries.delete_expense.return_value = DeletionResult(deleted=None)
 
-        handler = _make_delete_callback_handler(mock_repo)
+        handler = _make_delete_callback_handler(mock_queries)
         update = MagicMock()
         query = MagicMock()
         query.data = "delete:99"
@@ -1305,7 +1156,7 @@ class TestDeleteHandler:
         """Successful /delete replies with deleted expense details."""
         from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
 
-        mock_repo = MagicMock()
+        mock_queries = _make_queries_mock()
         deleted_expense = Expense(
             id=42,
             amount=Decimal("42.50"),
@@ -1317,9 +1168,9 @@ class TestDeleteHandler:
             receipt_photo_id=None,
             created_at=datetime(2026, 7, 10, 12, 0, 0),
         )
-        mock_repo.delete_by_id.return_value = deleted_expense
+        mock_queries.delete_expense.return_value = DeletionResult(deleted=deleted_expense)
 
-        handler = _make_delete_handler(mock_repo)
+        handler = _make_delete_handler(mock_queries)
         update = _make_update(text="/delete 42")
         context = MagicMock()
 
@@ -1328,16 +1179,16 @@ class TestDeleteHandler:
         call_args = update.effective_message.reply_text.call_args
         reply = call_args[0][0]
         assert reply == "🗑️ Deleted expense #42: Supermarket — 42.50 EUR — 2026-07-10"
-        mock_repo.delete_by_id.assert_called_once_with(12345, 42)
+        mock_queries.delete_expense.assert_called_once_with(12345, 42)
 
     def test_delete_not_found_replies_with_not_found_message(self) -> None:
         """Non-existent expense /delete replies with not found."""
         from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
 
-        mock_repo = MagicMock()
-        mock_repo.delete_by_id.return_value = None
+        mock_queries = _make_queries_mock()
+        mock_queries.delete_expense.return_value = DeletionResult(deleted=None)
 
-        handler = _make_delete_handler(mock_repo)
+        handler = _make_delete_handler(mock_queries)
         update = _make_update(text="/delete 99")
         context = MagicMock()
 
@@ -1350,8 +1201,8 @@ class TestDeleteHandler:
         """Invalid /delete formats all return usage message."""
         from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
 
-        mock_repo = MagicMock()
-        handler = _make_delete_handler(mock_repo)
+        mock_queries = _make_queries_mock()
+        handler = _make_delete_handler(mock_queries)
 
         invalid_inputs = ["/delete", "/delete abc", "/delete 42 extra"]
         for cmd in invalid_inputs:
@@ -1365,8 +1216,8 @@ class TestDeleteHandler:
         """Non-positive ids like /delete 0 return usage."""
         from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
 
-        mock_repo = MagicMock()
-        handler = _make_delete_handler(mock_repo)
+        mock_queries = _make_queries_mock()
+        handler = _make_delete_handler(mock_queries)
 
         update = _make_update(text="/delete 0")
         context = MagicMock()
@@ -1378,8 +1229,8 @@ class TestDeleteHandler:
         """Handler returns silently when effective_message is None."""
         from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
 
-        mock_repo = MagicMock()
-        handler = _make_delete_handler(mock_repo)
+        mock_queries = _make_queries_mock()
+        handler = _make_delete_handler(mock_queries)
         update = MagicMock()
         update.effective_message = None
         context = MagicMock()

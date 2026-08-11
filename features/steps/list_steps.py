@@ -48,7 +48,7 @@ def step_list_view_displayed(context: Any) -> None:
     """
     from expense_report.adapters.inbound.telegram_bot import _make_list_handler
 
-    handler = _make_list_handler(context.repository)
+    handler = _make_list_handler(context.expense_queries)
     update = _make_callback_ready_update(context)
     ctx = _make_callback_ready_context(context)
 
@@ -68,7 +68,7 @@ def step_user_sends_command(context: Any, user_id: int, command: str) -> None:
     """Send a command from a specific user."""
     from expense_report.adapters.inbound.telegram_bot import _make_list_handler
 
-    handler = _make_list_handler(context.repository)
+    handler = _make_list_handler(context.expense_queries)
     update = _make_callback_ready_update(context, user_id=user_id)
     ctx = _make_callback_ready_context(context)
 
@@ -89,7 +89,7 @@ def step_user_selects_month(context: Any, month_name: str) -> None:
     callback_data = _find_button_callback(context._list_markup, month_name)
     assert callback_data is not None, f"Button '{month_name}' not found in keyboard"
 
-    handler = _make_list_callback_handler(context.repository)
+    handler = _make_list_callback_handler(context.expense_queries)
     update = _make_callback_query_update(context, callback_data)
     ctx = _make_callback_ready_context(context)
 
@@ -109,7 +109,7 @@ def step_user_selects_year(context: Any, year: str) -> None:
     callback_data = _find_button_callback(context._list_markup, year)
     assert callback_data is not None, f"Button '{year}' not found in keyboard"
 
-    handler = _make_list_callback_handler(context.repository)
+    handler = _make_list_callback_handler(context.expense_queries)
     update = _make_callback_query_update(context, callback_data)
     ctx = _make_callback_ready_context(context)
 

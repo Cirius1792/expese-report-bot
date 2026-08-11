@@ -42,7 +42,42 @@ class ExtractionIncomplete:
     extraction: ExtractionResult
 
 
-RecordingOutcome = ExpenseRecorded | ExtractionIncomplete
+@dataclass(frozen=True)
+class CorrectionOpened:
+    """Incomplete Extraction in CONVERSATIONAL mode; pending Correction state opened."""
+
+    extraction: ExtractionResult
+
+
+@dataclass(frozen=True)
+class CorrectionResolved:
+    """Correction refined to completion; Expense saved; state cleared."""
+
+    expense: Expense
+    extraction: ExtractionResult
+
+
+@dataclass(frozen=True)
+class CorrectionStillIncomplete:
+    """Correction refined but still incomplete; attempt count incremented."""
+
+    extraction: ExtractionResult
+    attempt_count: int
+
+
+@dataclass(frozen=True)
+class CorrectionLimitReached:
+    """Maximum Correction attempts exhausted; state cleared; nothing persisted."""
+
+
+RecordingOutcome = (
+    ExpenseRecorded
+    | ExtractionIncomplete
+    | CorrectionOpened
+    | CorrectionResolved
+    | CorrectionStillIncomplete
+    | CorrectionLimitReached
+)
 
 
 @runtime_checkable
@@ -50,5 +85,9 @@ class ExpenseRecordingPort(Protocol):
     """Driving Interface for the Expense Recording conversation."""
 
     def record(self, command: RecordExpense) -> RecordingOutcome:
-        """Extract and, when complete, persist one Expense."""
+        """Extract and, when complete, persist one Expense.
+
+        Routes a conversational text command through the Correction lifecycle
+        when a Correction is pending for the user.
+        """
         ...

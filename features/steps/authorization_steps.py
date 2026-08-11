@@ -59,21 +59,19 @@ def step_send_text_through_authorization_gate(context: Any, text: str) -> None:
         return
 
     context.authorization_stopped = False
-    extraction_adapter = MagicMock()
-    extraction_adapter.extract.return_value = ExtractionResult(
-        amount=None,
-        currency=None,
-        merchant=None,
-        date=None,
-        category=None,
-    )
+    from expense_report.ports.expense_recording import CorrectionOpened
+
     recording = MagicMock()
-    handler = _make_text_handler(
-        recording,
-        extraction_adapter,
-        context.repository,
-        context.correction_store,
+    recording.record.return_value = CorrectionOpened(
+        ExtractionResult(
+            amount=None,
+            currency=None,
+            merchant=None,
+            date=None,
+            category=None,
+        )
     )
+    handler = _make_text_handler(recording)
     asyncio.run(handler(update, MagicMock()))
 
 

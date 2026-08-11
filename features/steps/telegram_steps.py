@@ -26,7 +26,7 @@ def step_have_valid_receipt(context: Any) -> None:
 @given("I have no pending corrections")
 def step_no_pending_corrections(context: Any) -> None:
     """Ensure no pending correction exists for the current user."""
-    from expense_report.domain.correction_state import CorrectionStore
+    from expense_report.application.correction_state import CorrectionStore
 
     if not hasattr(context, "correction_store"):
         context.correction_store = CorrectionStore()
@@ -84,13 +84,19 @@ def step_llm_extracts_photo_complete(
             mock_response.choices = [MagicMock(message=MagicMock(content=content))]
             mock_client.chat.completions.create.return_value = mock_response
 
-            # Build mock adapter with real DspyExtractionAdapter
+            # Build recording use case around the real DspyExtractionAdapter
             from expense_report.adapters.out.dspy_extraction import (
                 DspyExtractionAdapter,
             )
+            from expense_report.application.expense_recording import (
+                ExpenseRecordingUseCase,
+            )
 
             adapter = DspyExtractionAdapter()
-            handler = _make_photo_handler(adapter, context.repository, context.correction_store)
+            recording = ExpenseRecordingUseCase(
+                adapter, context.repository, context.correction_store
+            )
+            handler = _make_photo_handler(recording)
 
             update = make_telegram_update(
                 context,
@@ -129,9 +135,15 @@ def step_llm_extracts_photo_partial(context: Any, amount: str) -> None:
             from expense_report.adapters.out.dspy_extraction import (
                 DspyExtractionAdapter,
             )
+            from expense_report.application.expense_recording import (
+                ExpenseRecordingUseCase,
+            )
 
             adapter = DspyExtractionAdapter()
-            handler = _make_photo_handler(adapter, context.repository, context.correction_store)
+            recording = ExpenseRecordingUseCase(
+                adapter, context.repository, context.correction_store
+            )
+            handler = _make_photo_handler(recording)
 
             update = make_telegram_update(
                 context,
@@ -171,10 +183,8 @@ def step_send_text_message(context: Any, text: str) -> None:
         )
 
         adapter = DspyExtractionAdapter()
-        recording = ExpenseRecordingUseCase(adapter, context.repository)
-        handler = _make_text_handler(
-            recording, adapter, context.repository, context.correction_store
-        )
+        recording = ExpenseRecordingUseCase(adapter, context.repository, context.correction_store)
+        handler = _make_text_handler(recording)
         update = make_telegram_update(context, text=text)
         ctx = MagicMock()
 
@@ -226,14 +236,14 @@ def step_send_command(context: Any, command: str) -> None:
         asyncio.run(handler(update, ctx))
 
     elif command == "/report":
-        handler = _make_report_handler(context.repository)
+        handler = _make_report_handler(context.expense_queries)
         ctx = MagicMock()
         with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
             mock_dt.now.return_value = context.current_datetime
             asyncio.run(handler(update, ctx))
 
     elif command == "/list":
-        handler = _make_list_handler(context.repository)
+        handler = _make_list_handler(context.expense_queries)
         ctx = MagicMock()
         with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
             mock_dt.now.return_value = context.current_datetime
@@ -242,7 +252,7 @@ def step_send_command(context: Any, command: str) -> None:
         context._list_markup = update.effective_message.reply_text.call_args[1].get("reply_markup")
 
     elif command.startswith("/delete"):
-        handler = _make_delete_handler(context.repository)
+        handler = _make_delete_handler(context.expense_queries)
         ctx = MagicMock()
         asyncio.run(handler(update, ctx))
         context._last_delete_reply = update.effective_message.reply_text.call_args[0][0]
