@@ -395,7 +395,7 @@ def register_handlers(
     app.add_handler(
         MessageHandler(
             filters.PHOTO,
-            _make_photo_handler(extraction_adapter, repository, correction_store),
+            _make_photo_handler(expense_recording, correction_store),
         )
     )
     app.add_handler(
@@ -457,11 +457,10 @@ def _make_report_handler(
 
 
 def _make_photo_handler(
-    extraction_adapter: ExtractionPort,
-    repository: ExpenseRepositoryPort,
+    expense_recording: ExpenseRecordingPort,
     correction_store: CorrectionStore,
 ):
-    """Factory: create a photo handler bound to the given adapters."""
+    """Factory: create a photo handler bound to the recording port and correction store."""
 
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.effective_message is None or update.effective_user is None:
@@ -476,9 +475,18 @@ def _make_photo_handler(
         file = await context.bot.get_file(photo.file_id)
         image_bytes = await file.download_as_bytearray()
 
-        result = extraction_adapter.extract(bytes(image_bytes), "image")
+        outcome = expense_recording.record(
+            RecordExpense(
+                user_id=user_id,
+                source=bytes(image_bytes),
+                source_type="image",
+                mode=RecordingMode.CONVERSATIONAL,
+                receipt_photo_id=photo.file_id,
+            )
+        )
 
-        if not result.is_complete:
+        if isinstance(outcome, ExtractionIncomplete):
+            result = outcome.extraction
             missing = _missing_fields(result)
             logger.info(
                 "Partial extraction for user %s photo: missing %s",
@@ -492,15 +500,11 @@ def _make_photo_handler(
                     original_result=result,
                 ),
             )
-        else:
-            logger.info("Complete extraction for user %s photo", user_id)
+            await _reply_with_incomplete_extraction(update, result)
+            return
 
-        await _respond_to_extraction(
-            update,
-            result,
-            repository,
-            receipt_photo_id=photo.file_id,
-        )
+        logger.info("Complete extraction for user %s photo", user_id)
+        await _reply_with_recorded_expense(update, outcome)
 
     return handler
 
@@ -599,47 +603,6 @@ async def _reply_with_recorded_expense(
         [[InlineKeyboardButton("🗑️ Delete", callback_data=f"delete:{saved_expense.id}")]]
     )
     await update.effective_message.reply_text(summary, reply_markup=keyboard)
-
-
-async def _respond_to_extraction(
-    update: Update,
-    result: ExtractionResult,
-    repository: ExpenseRepositoryPort,
-    receipt_photo_id: str | None,
-) -> None:
-    """Respond to an extraction result.
-
-    If complete: save to repo and send formatted summary.
-    If partial: ask for missing fields.
-    """
-    if update.effective_message is None or update.effective_user is None:
-        return
-
-    user_id = update.effective_user.id
-
-    if result.is_complete:
-        assert result.amount is not None and result.currency is not None
-        assert result.merchant is not None and result.date is not None
-
-        expense = Expense(
-            id=None,
-            amount=result.amount,
-            currency=result.currency,
-            merchant=result.merchant,
-            date=result.date,
-            category=result.category,
-            user_id=user_id,
-            receipt_photo_id=receipt_photo_id,
-            created_at=datetime.now(),
-        )
-        saved_expense = repository.save(expense)
-
-        await _reply_with_recorded_expense(
-            update,
-            ExpenseRecorded(expense=saved_expense, extraction=result),
-        )
-    else:
-        await _reply_with_incomplete_extraction(update, result)
 
 
 async def _handle_correction(

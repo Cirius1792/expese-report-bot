@@ -84,13 +84,17 @@ def step_llm_extracts_photo_complete(
             mock_response.choices = [MagicMock(message=MagicMock(content=content))]
             mock_client.chat.completions.create.return_value = mock_response
 
-            # Build mock adapter with real DspyExtractionAdapter
+            # Build recording use case around the real DspyExtractionAdapter
             from expense_report.adapters.out.dspy_extraction import (
                 DspyExtractionAdapter,
             )
+            from expense_report.application.expense_recording import (
+                ExpenseRecordingUseCase,
+            )
 
             adapter = DspyExtractionAdapter()
-            handler = _make_photo_handler(adapter, context.repository, context.correction_store)
+            recording = ExpenseRecordingUseCase(adapter, context.repository)
+            handler = _make_photo_handler(recording, context.correction_store)
 
             update = make_telegram_update(
                 context,
@@ -129,9 +133,13 @@ def step_llm_extracts_photo_partial(context: Any, amount: str) -> None:
             from expense_report.adapters.out.dspy_extraction import (
                 DspyExtractionAdapter,
             )
+            from expense_report.application.expense_recording import (
+                ExpenseRecordingUseCase,
+            )
 
             adapter = DspyExtractionAdapter()
-            handler = _make_photo_handler(adapter, context.repository, context.correction_store)
+            recording = ExpenseRecordingUseCase(adapter, context.repository)
+            handler = _make_photo_handler(recording, context.correction_store)
 
             update = make_telegram_update(
                 context,

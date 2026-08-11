@@ -82,9 +82,7 @@ def step_cli_extract_from_image(context: Any) -> None:
                         img_path,
                     ],
                 ):
-                    with patch(
-                        "expense_report.adapters.inbound.cli_extraction.datetime"
-                    ) as mock_dt:
+                    with patch("expense_report.application.expense_recording.datetime") as mock_dt:
                         mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
 
                         from expense_report.adapters.inbound.cli_extraction import main
@@ -176,7 +174,7 @@ def step_cli_extract_from_text(context: Any) -> None:
                     text,
                 ],
             ):
-                with patch("expense_report.adapters.inbound.cli_extraction.datetime") as mock_dt:
+                with patch("expense_report.application.expense_recording.datetime") as mock_dt:
                     mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
 
                     from expense_report.adapters.inbound.cli_extraction import main
