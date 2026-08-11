@@ -4,8 +4,11 @@ Uses mocked telegram module (set up in tests/conftest.py) and
 AsyncMock for async PTB API methods.
 
 Follows sociable unit test principles:
-- System boundaries mocked: Telegram API (PTB), LLM (extraction adapter mock), DB (repository mock)
-- Internal collaborators are real: CorrectionStore (domain class)
+- System boundaries mocked: Telegram API (PTB), application driving port
+  (ExpenseRecordingPort mock), DB (repository mock)
+- The Correction lifecycle is owned by the application use case and covered in
+  tests/application/test_expense_recording.py — these tests only verify
+  transport translation and rendering
 """
 
 from __future__ import annotations
@@ -17,7 +20,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from expense_report.domain.correction_state import CorrectionStore, PendingCorrection
 from expense_report.domain.models import Expense, ExtractionResult
 
 
@@ -117,9 +119,8 @@ class TestPhotoHandler:
         )
         recording = MagicMock()
         recording.record.return_value = ExpenseRecorded(saved, result)
-        store = CorrectionStore()  # real domain object
 
-        handler = _make_photo_handler(recording, store)
+        handler = _make_photo_handler(recording)
         update = _make_update(photo_file_id="photo-abc-123")
         context = _make_context(image_bytes=b"receipt-image")
 
@@ -137,9 +138,6 @@ class TestPhotoHandler:
             )
         )
 
-        # Verify no correction was stored (complete extraction)
-        assert store.get(12345) is None
-
         reply_text = update.effective_message.reply_text.call_args[0][0]
         assert "✅ Saved." in reply_text
         assert "42.50" in reply_text
@@ -147,12 +145,12 @@ class TestPhotoHandler:
         assert "Supermarket" in reply_text
 
     def test_partial_extraction_asks_for_missing(self) -> None:
-        """Photo with incomplete outcome sets pending correction and asks for missing fields."""
+        """Photo with CorrectionOpened outcome renders the byte-identical partial prompt."""
         from expense_report.adapters.inbound.telegram_bot import (
             _make_photo_handler,
         )
         from expense_report.ports.expense_recording import (
-            ExtractionIncomplete,
+            CorrectionOpened,
             RecordExpense,
             RecordingMode,
         )
@@ -165,10 +163,9 @@ class TestPhotoHandler:
             category=None,
         )
         recording = MagicMock()
-        recording.record.return_value = ExtractionIncomplete(partial)
-        store = CorrectionStore()  # real domain object
+        recording.record.return_value = CorrectionOpened(partial)
 
-        handler = _make_photo_handler(recording, store)
+        handler = _make_photo_handler(recording)
         update = _make_update(photo_file_id="photo-456")
         context = _make_context(image_bytes=b"blurry-receipt")
 
@@ -184,23 +181,17 @@ class TestPhotoHandler:
             )
         )
 
-        # Verify correction was stored (real store, not mock assertion)
-        pending = store.get(12345)
-        assert pending is not None
-        assert pending.user_id == 12345
-        assert pending.original_result.amount == Decimal("15.00")
-        assert pending.attempt_count == 1
-
+        # Byte-identical partial prompt; Correction state setup now happens
+        # inside the use case (covered in tests/application)
         reply_text = update.effective_message.reply_text.call_args[0][0]
-        assert "partial information" in reply_text
-        assert "currency" in reply_text
-        assert "merchant" in reply_text
-        assert "date" in reply_text
-        assert "amount" not in reply_text  # amount was provided
+        assert reply_text == (
+            "I extracted partial information. Please reply with the"
+            " missing details: currency, merchant, date"
+        )
 
 
 class TestTextHandler:
-    """Tests for text message handler."""
+    """Tests for text message handler (pure translation + rendering)."""
 
     def test_complete_extraction_calls_use_case_and_confirms(self) -> None:
         """New text is translated to a conversational recording command."""
@@ -231,10 +222,7 @@ class TestTextHandler:
         )
         recording = MagicMock()
         recording.record.return_value = ExpenseRecorded(saved, result)
-        extraction = MagicMock()
-        repository = MagicMock()
-        store = CorrectionStore()
-        handler = _make_text_handler(recording, extraction, repository, store)
+        handler = _make_text_handler(recording)
         update = _make_update(text="coffee 12.50 usd")
 
         asyncio.run(handler(update, MagicMock()))
@@ -248,15 +236,22 @@ class TestTextHandler:
                 receipt_photo_id=None,
             )
         )
-        extraction.extract.assert_not_called()
-        repository.save.assert_not_called()
-        assert "✅ Saved." in update.effective_message.reply_text.call_args[0][0]
-        assert "12.50 USD" in update.effective_message.reply_text.call_args[0][0]
+        reply_text = update.effective_message.reply_text.call_args[0][0]
+        assert reply_text == (
+            "📄 *Extracted expense:*\n"
+            "Expense #7\n"
+            "Amount: 12.50 USD\n"
+            "Merchant: Coffee Shop\n"
+            "Date: 2026-07-20\n"
+            "Category: food\n"
+            "\n"
+            "✅ Saved."
+        )
 
-    def test_partial_extraction_opens_existing_correction_state(self) -> None:
-        """An incomplete outcome opens the existing Telegram Correction state."""
+    def test_partial_extraction_renders_partial_prompt(self) -> None:
+        """CorrectionOpened from fresh text renders the byte-identical partial prompt."""
         from expense_report.adapters.inbound.telegram_bot import _make_text_handler
-        from expense_report.ports.expense_recording import ExtractionIncomplete
+        from expense_report.ports.expense_recording import CorrectionOpened
 
         partial = ExtractionResult(
             amount=None,
@@ -266,22 +261,19 @@ class TestTextHandler:
             category=None,
         )
         recording = MagicMock()
-        recording.record.return_value = ExtractionIncomplete(partial)
-        extraction = MagicMock()
-        repository = MagicMock()
-        store = CorrectionStore()
-        handler = _make_text_handler(recording, extraction, repository, store)
+        recording.record.return_value = CorrectionOpened(partial)
+        handler = _make_text_handler(recording)
         update = _make_update(text="something")
 
         asyncio.run(handler(update, MagicMock()))
 
-        repository.save.assert_not_called()
-        pending = store.get(12345)
-        assert pending is not None
-        assert pending.original_result == partial
+        # Byte-identical partial prompt; Correction state setup now happens
+        # inside the use case (covered in tests/application)
         reply = update.effective_message.reply_text.call_args[0][0]
-        assert "partial information" in reply
-        assert "amount" in reply
+        assert reply == (
+            "I extracted partial information. Please reply with the"
+            " missing details: amount, currency, merchant, date"
+        )
 
 
 class TestSaveConfirmation:
@@ -312,9 +304,8 @@ class TestSaveConfirmation:
         )
         recording = MagicMock()
         recording.record.return_value = ExpenseRecorded(saved_expense, result)
-        store = CorrectionStore()  # real domain object
 
-        handler = _make_photo_handler(recording, store)
+        handler = _make_photo_handler(recording)
         update = _make_update(photo_file_id="photo-abc-123")
         context = _make_context()
 
@@ -454,11 +445,9 @@ class TestRegisterHandlers:
 
         app = MagicMock()
         recording = MagicMock()
-        adapter = MagicMock()
         repo = MagicMock()
-        store = CorrectionStore()  # real store
 
-        register_handlers(app, recording, adapter, repo, store)
+        register_handlers(app, recording, repo)
 
         # Verify 8 handlers were registered
         assert app.add_handler.call_count == 8
