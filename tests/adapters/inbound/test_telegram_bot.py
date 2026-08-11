@@ -62,8 +62,6 @@ def _make_queries_mock() -> MagicMock:
     return MagicMock(spec=ExpenseQueryPort)
 
 
-
-
 class TestStartHandler:
     """Tests for /start command handler."""
 
@@ -340,8 +338,10 @@ class TestReportHandler:
     def test_with_expenses_sends_csv(self) -> None:
         """Report with expenses sends CSV document and count message."""
         queries = _make_queries_mock()
-        queries.generate_csv_report.return_value = "date,merchant,category,amount,currency\n2026-07-01,Shop A,shopping,10.00,EUR\n2026-07-02,Shop B,food,20.50,EUR\n"
-
+        csv_str = "date,merchant,category,amount,currency\n"
+        csv_str += "2026-07-01,Shop A,shopping,10.00,EUR\n"
+        csv_str += "2026-07-02,Shop B,food,20.50,EUR\n"
+        queries.generate_csv_report.return_value = csv_str
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_report_handler,

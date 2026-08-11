@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from expense_report.domain.models import Expense, ExtractionResult
+from expense_report.ports.expense_queries import ExpenseQueryPort
 
 
 # Configure logging for tests that verify log output
@@ -158,8 +159,9 @@ class TestReportHandlerLogging:
     def test_report_handler_logs_generated(self, caplog: pytest.LogCaptureFixture) -> None:
         """Handler logs report generated with count at INFO."""
         queries = MagicMock(spec=ExpenseQueryPort)
-        queries.generate_csv_report.return_value = "date,merchant,category,amount,currency\n2026-07-01,Shop A,food,10.00,EUR\n"
-
+        queries.generate_csv_report.return_value = (
+            "date,merchant,category,amount,currency\n2026-07-01,Shop A,food,10.00,EUR\n"
+        )
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_report_handler,

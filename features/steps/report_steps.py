@@ -63,7 +63,7 @@ def step_user_requests_report(context: Any, user_id: int) -> None:
     """Run the /report handler for a specific user."""
     from expense_report.adapters.inbound.telegram_bot import _make_report_handler
 
-    handler = _make_report_handler(context.repository)
+    handler = _make_report_handler(context.expense_queries)
     update = make_telegram_update(context, user_id=user_id, text="/report")
     ctx = MagicMock()
 

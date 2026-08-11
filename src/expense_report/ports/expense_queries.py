@@ -49,27 +49,19 @@ class ExpenseQueryPort(Protocol):
         """
         ...
 
-    def get_month_expenses(
-        self, user_id: int, year: int, month: int
-    ) -> list[Expense]:
+    def get_month_expenses(self, user_id: int, year: int, month: int) -> list[Expense]:
         """Return all expenses for a specific user/year/month."""
         ...
 
-    def get_year_expenses(
-        self, user_id: int, year: int
-    ) -> list[Expense]:
+    def get_year_expenses(self, user_id: int, year: int) -> list[Expense]:
         """Return all expenses for a specific user/year, across all months."""
         ...
 
-    def generate_csv_report(
-        self, user_id: int, year: int, month: int
-    ) -> str:
+    def generate_csv_report(self, user_id: int, year: int, month: int) -> str:
         """Generate a CSV report string for the given period."""
         ...
 
-    def delete_expense(
-        self, user_id: int, expense_id: int
-    ) -> DeletionResult:
+    def delete_expense(self, user_id: int, expense_id: int) -> DeletionResult:
         """Delete a single expense. Returns DeletionResult with the deleted
         Expense or None if not found."""
         ...

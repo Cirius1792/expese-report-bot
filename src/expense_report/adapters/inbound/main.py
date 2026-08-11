@@ -23,6 +23,7 @@ from expense_report.adapters.inbound.telegram_bot import register_handlers
 from expense_report.adapters.out.dspy_extraction import DspyExtractionAdapter
 from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 from expense_report.application.correction_state import CorrectionStore
+from expense_report.application.expense_queries import ExpenseQueryUseCase
 from expense_report.application.expense_recording import ExpenseRecordingUseCase
 
 _LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
@@ -88,10 +89,11 @@ def main() -> None:
     extraction = DspyExtractionAdapter()
     repository = SqliteExpenseRepository(db_path=db_path)
     correction_store = CorrectionStore()
+    expense_queries = ExpenseQueryUseCase(repository)
     expense_recording = ExpenseRecordingUseCase(extraction, repository, correction_store)
 
     app = Application.builder().token(token).build()
     register_authorization_guard(app, authorized_user_ids, unauthorized_audit)
-    register_handlers(app, expense_recording, repository)
+    register_handlers(app, expense_recording, expense_queries)
     logger.info("Bot started, entering polling loop")
     app.run_polling()

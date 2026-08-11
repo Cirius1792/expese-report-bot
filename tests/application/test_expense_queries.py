@@ -7,7 +7,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 
 from expense_report.domain.models import Expense
-from expense_report.ports.expense_queries import DeletionResult, ExpenseQueryPort, PeriodSummary
+from expense_report.ports.expense_queries import DeletionResult, PeriodSummary
 
 
 def _make_expense(
@@ -43,8 +43,9 @@ class TestDiscoverPeriods:
 
     def test_current_year_has_data_uses_current_month_as_active(self) -> None:
         """When current year has data, active = current year/month."""
-        from expense_report.application.expense_queries import ExpenseQueryUseCase
         from unittest.mock import patch
+
+        from expense_report.application.expense_queries import ExpenseQueryUseCase
 
         repo = MagicMock()
         repo.get_months_with_expenses.side_effect = [
@@ -67,8 +68,9 @@ class TestDiscoverPeriods:
 
     def test_current_year_no_data_previous_has_uses_most_recent(self) -> None:
         """When current year empty but previous has data, active = previous year."""
-        from expense_report.application.expense_queries import ExpenseQueryUseCase
         from unittest.mock import patch
+
+        from expense_report.application.expense_queries import ExpenseQueryUseCase
 
         repo = MagicMock()
         repo.get_months_with_expenses.side_effect = [
@@ -89,8 +91,9 @@ class TestDiscoverPeriods:
 
     def test_no_expenses_at_all_returns_default_active(self) -> None:
         """When no expenses exist, periods is empty, active = current."""
-        from expense_report.application.expense_queries import ExpenseQueryUseCase
         from unittest.mock import patch
+
+        from expense_report.application.expense_queries import ExpenseQueryUseCase
 
         repo = MagicMock()
         repo.get_months_with_expenses.side_effect = [
@@ -109,8 +112,9 @@ class TestDiscoverPeriods:
 
     def test_extra_years_are_also_scanned(self) -> None:
         """When extra_years provided, those years are queried too."""
-        from expense_report.application.expense_queries import ExpenseQueryUseCase
         from unittest.mock import patch
+
+        from expense_report.application.expense_queries import ExpenseQueryUseCase
 
         repo = MagicMock()
         repo.get_months_with_expenses.side_effect = [
@@ -132,8 +136,9 @@ class TestDiscoverPeriods:
 
     def test_multi_user_isolation(self) -> None:
         """Different user_ids result in different repository queries."""
-        from expense_report.application.expense_queries import ExpenseQueryUseCase
         from unittest.mock import patch
+
+        from expense_report.application.expense_queries import ExpenseQueryUseCase
 
         repo = MagicMock()
         repo.get_months_with_expenses.side_effect = [

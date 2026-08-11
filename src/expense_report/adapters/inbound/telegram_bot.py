@@ -22,8 +22,10 @@ from telegram.ext import (
     filters,
 )
 
-from expense_report.domain.csv_generator import generate_csv
 from expense_report.domain.models import Expense, ExtractionResult
+from expense_report.ports.expense_queries import (
+    ExpenseQueryPort,
+)
 from expense_report.ports.expense_recording import (
     CorrectionLimitReached,
     CorrectionOpened,
@@ -35,7 +37,6 @@ from expense_report.ports.expense_recording import (
     RecordExpense,
     RecordingMode,
 )
-from expense_report.ports.repository import ExpenseRepositoryPort
 
 logger = logging.getLogger(__name__)
 
@@ -160,8 +161,8 @@ def _build_list_keyboard(
     return InlineKeyboardMarkup(keyboard)
 
 
-def _make_list_handler(repository: ExpenseRepositoryPort):
-    """Factory: create a /list handler bound to the given repository."""
+def _make_list_handler(expense_queries: ExpenseQueryPort):
+    """Factory: create a /list handler bound to the given query port."""
 
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.effective_message is None or update.effective_user is None:
@@ -169,50 +170,33 @@ def _make_list_handler(repository: ExpenseRepositoryPort):
             return
 
         user_id = update.effective_user.id
-        now = datetime.now()
-        current_year = now.year
-        current_month = now.month
 
         logger.info("User %s requested /list", user_id)
 
-        # Discover which years and months have expenses
-        year_months: dict[int, set[int]] = {}
+        # Discover which periods have expenses through the query port
+        summary = expense_queries.discover_periods(user_id)
 
-        current_year_months = repository.get_months_with_expenses(user_id, current_year)
-        if current_year_months:
-            year_months[current_year] = current_year_months
-
-        prev_year_months = repository.get_months_with_expenses(user_id, current_year - 1)
-        if prev_year_months:
-            year_months[current_year - 1] = prev_year_months
-
-        if not year_months:
+        if not summary.periods:
             await update.effective_message.reply_text(
                 "You have no recorded expenses."
                 " Send me a photo or describe an expense to get started!"
             )
             return
 
-        # If current year has no data but previous years do, use the most recent year
-        if current_year not in year_months:
-            active_year = max(year_months.keys())
-            active_month = max(year_months[active_year])
-        else:
-            active_year = current_year
-            active_month = current_month
+        # Show the active period's expenses
+        expenses = expense_queries.get_month_expenses(
+            user_id, summary.active_year, summary.active_month
+        )
 
-        # Show the active month's expenses
-        expenses = repository.get_by_user_and_month(user_id, active_year, active_month)
-
-        text = _format_month_view(expenses, active_year, active_month)
-        keyboard = _build_list_keyboard(active_year, year_months)
+        text = _format_month_view(expenses, summary.active_year, summary.active_month)
+        keyboard = _build_list_keyboard(summary.active_year, summary.periods)
 
         await update.effective_message.reply_text(text, reply_markup=keyboard)
 
     return handler
 
 
-def _make_list_callback_handler(repository: ExpenseRepositoryPort):
+def _make_list_callback_handler(expense_queries: ExpenseQueryPort):
     """Factory: create a callback handler for /list inline keyboard buttons."""
 
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -227,13 +211,11 @@ def _make_list_callback_handler(repository: ExpenseRepositoryPort):
             return
 
         user_id = query.from_user.id
-        now = datetime.now()
-
         try:
             # Parse callback data first — everything that touches data.split goes here
             if data.startswith("year:"):
                 year = int(data.split(":")[1])
-                years_to_check = {now.year, now.year - 1, year}
+                extra_years = {year}
             elif data.startswith("month:"):
                 parts = data.split(":")
                 if len(parts) != 3:
@@ -241,40 +223,34 @@ def _make_list_callback_handler(repository: ExpenseRepositoryPort):
                     return
                 year = int(parts[1])
                 month = int(parts[2])
-                years_to_check = {now.year, now.year - 1, year}
+                extra_years = {year}
             else:
                 return
         except (ValueError, IndexError):
             logger.warning("Invalid callback_data from user %s: %r", user_id, data)
             return
 
-        # Rebuild year_months for keyboard
-        year_months: dict[int, set[int]] = {}
-        for y in years_to_check:
-            months = repository.get_months_with_expenses(user_id, y)
-            if months:
-                year_months[y] = months
+        # Rebuild period info through the query port
+        summary = expense_queries.discover_periods(user_id, extra_years=extra_years)
 
         if data.startswith("year:"):
             logger.info("User %s selected year %s in /list", user_id, year)
-            all_expenses: list[Expense] = []
-            for m in year_months.get(year, set()):
-                all_expenses.extend(repository.get_by_user_and_month(user_id, year, m))
+            all_expenses = expense_queries.get_year_expenses(user_id, year)
             text = _format_year_view(all_expenses, year)
-            keyboard = _build_list_keyboard(year, year_months)
+            keyboard = _build_list_keyboard(year, summary.periods)
             await query.edit_message_text(text=text, reply_markup=keyboard)
 
         elif data.startswith("month:"):
             logger.info("User %s selected month %s/%s in /list", user_id, year, month)
-            expenses = repository.get_by_user_and_month(user_id, year, month)
+            expenses = expense_queries.get_month_expenses(user_id, year, month)
             text = _format_month_view(expenses, year, month)
-            keyboard = _build_list_keyboard(year, year_months)
+            keyboard = _build_list_keyboard(year, summary.periods)
             await query.edit_message_text(text=text, reply_markup=keyboard)
 
     return handler
 
 
-def _make_delete_callback_handler(repository: ExpenseRepositoryPort):
+def _make_delete_callback_handler(expense_queries: ExpenseQueryPort):
     """Factory: create a callback handler for delete button presses.
 
     Handles callback data of the form 'delete:<expense_id>'.
@@ -300,9 +276,9 @@ def _make_delete_callback_handler(repository: ExpenseRepositoryPort):
 
         logger.info("User %s tapped delete for expense #%s", user_id, expense_id)
 
-        deleted = repository.delete_by_id(user_id, expense_id)
+        result = expense_queries.delete_expense(user_id, expense_id)
 
-        if deleted is None:
+        if result.deleted is None:
             await query.answer("Expense not found.")
             return
 
@@ -326,8 +302,8 @@ def _make_delete_callback_handler(repository: ExpenseRepositoryPort):
     return handler
 
 
-def _make_delete_handler(repository: ExpenseRepositoryPort):
-    """Factory: create a /delete command handler bound to the given repository."""
+def _make_delete_handler(expense_queries: ExpenseQueryPort):
+    """Factory: create a /delete command handler bound to the given query port."""
 
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.effective_message is None or update.effective_user is None:
@@ -356,11 +332,12 @@ def _make_delete_handler(repository: ExpenseRepositoryPort):
 
         logger.info("User %s requesting deletion of expense #%s", user_id, expense_id)
 
-        deleted = repository.delete_by_id(user_id, expense_id)
+        result = expense_queries.delete_expense(user_id, expense_id)
 
-        if deleted is None:
+        if result.deleted is None:
             await update.effective_message.reply_text(f"Expense #{expense_id} was not found.")
         else:
+            deleted = result.deleted
             await update.effective_message.reply_text(
                 f"🗑️ Deleted expense #{deleted.id}:"
                 f" {deleted.merchant} — {deleted.amount:.2f} {deleted.currency}"
@@ -373,22 +350,22 @@ def _make_delete_handler(repository: ExpenseRepositoryPort):
 def register_handlers(
     app: Application,
     expense_recording: ExpenseRecordingPort,
-    repository: ExpenseRepositoryPort,
+    expense_queries: ExpenseQueryPort,
 ) -> None:
     """Register all bot command and message handlers."""
     app.add_handler(CommandHandler("start", _handle_start))
-    app.add_handler(CommandHandler("report", _make_report_handler(repository)))
-    app.add_handler(CommandHandler("list", _make_list_handler(repository)))
-    app.add_handler(CommandHandler("delete", _make_delete_handler(repository)))
+    app.add_handler(CommandHandler("report", _make_report_handler(expense_queries)))
+    app.add_handler(CommandHandler("list", _make_list_handler(expense_queries)))
+    app.add_handler(CommandHandler("delete", _make_delete_handler(expense_queries)))
     app.add_handler(
         CallbackQueryHandler(
-            _make_list_callback_handler(repository),
+            _make_list_callback_handler(expense_queries),
             pattern=r"^(year|month):",
         )
     )
     app.add_handler(
         CallbackQueryHandler(
-            _make_delete_callback_handler(repository),
+            _make_delete_callback_handler(expense_queries),
             pattern=r"^delete:",
         )
     )
@@ -416,7 +393,7 @@ async def _handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 def _make_report_handler(
-    repository: ExpenseRepositoryPort,
+    expense_queries: ExpenseQueryPort,
 ):
     """Factory: create a /report handler bound to the given repository."""
 
@@ -432,25 +409,27 @@ def _make_report_handler(
 
         logger.info("User %s requested report for %04d-%02d", user_id, year, month)
 
-        expenses = repository.get_by_user_and_month(user_id, year, month)
+        csv_string = expense_queries.generate_csv_report(user_id, year, month)
 
-        if not expenses:
+        # Check if report has data (more than just the header line)
+        lines = csv_string.strip().split("\n")
+        if len(lines) <= 1:
             logger.info("No expenses for user %s in %04d-%02d", user_id, year, month)
             await update.effective_message.reply_text(
                 f"No expenses recorded for {year:04d}-{month:02d}."
             )
             return
 
-        csv_string = generate_csv(expenses)
         filename = f"expenses-{year:04d}-{month:02d}.csv"
 
         bio = BytesIO(csv_string.encode("utf-8"))
         bio.name = filename
 
         await update.effective_message.reply_document(document=bio, filename=filename)
-        logger.info("Generated report with %s expenses for user %s", len(expenses), user_id)
+        expense_count = len(lines) - 1
+        logger.info("Generated report with %s expenses for user %s", expense_count, user_id)
         await update.effective_message.reply_text(
-            f"📊 Generated report with {len(expenses)} expenses."
+            f"📊 Generated report with {expense_count} expenses."
         )
 
     return handler

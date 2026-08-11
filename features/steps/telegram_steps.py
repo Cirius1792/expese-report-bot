@@ -236,14 +236,14 @@ def step_send_command(context: Any, command: str) -> None:
         asyncio.run(handler(update, ctx))
 
     elif command == "/report":
-        handler = _make_report_handler(context.repository)
+        handler = _make_report_handler(context.expense_queries)
         ctx = MagicMock()
         with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
             mock_dt.now.return_value = context.current_datetime
             asyncio.run(handler(update, ctx))
 
     elif command == "/list":
-        handler = _make_list_handler(context.repository)
+        handler = _make_list_handler(context.expense_queries)
         ctx = MagicMock()
         with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
             mock_dt.now.return_value = context.current_datetime
@@ -252,7 +252,7 @@ def step_send_command(context: Any, command: str) -> None:
         context._list_markup = update.effective_message.reply_text.call_args[1].get("reply_markup")
 
     elif command.startswith("/delete"):
-        handler = _make_delete_handler(context.repository)
+        handler = _make_delete_handler(context.expense_queries)
         ctx = MagicMock()
         asyncio.run(handler(update, ctx))
         context._last_delete_reply = update.effective_message.reply_text.call_args[0][0]

@@ -16,7 +16,7 @@ def step_delete_user_command(context: Any, user_id: int, command: str) -> None:
     """Send a /delete command from a specific user (user-scoped variant)."""
     from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
 
-    handler = _make_delete_handler(context.repository)
+    handler = _make_delete_handler(context.expense_queries)
     update = _make_delete_update(context, user_id=user_id, text=command)
     ctx = MagicMock()
     asyncio.run(handler(update, ctx))
@@ -28,7 +28,7 @@ def step_send_invalid_delete_commands(context: Any) -> None:
     """Send each invalid delete command and collect replies."""
     from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
 
-    handler = _make_delete_handler(context.repository)
+    handler = _make_delete_handler(context.expense_queries)
     replies: list[str] = []
 
     for row in context.table:
@@ -46,7 +46,7 @@ def step_tap_delete_button(context: Any, expense_id: int) -> None:
     """Simulate tapping the delete button callback."""
     from expense_report.adapters.inbound.telegram_bot import _make_delete_callback_handler
 
-    handler = _make_delete_callback_handler(context.repository)
+    handler = _make_delete_callback_handler(context.expense_queries)
     update = MagicMock()
     query = MagicMock()
     query.data = f"delete:{expense_id}"
