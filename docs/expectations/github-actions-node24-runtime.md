@@ -10,8 +10,11 @@ Node.js 24"). All actions in `.github/workflows/` must target Node 24.
 
 ### Happy path
 
-- E1. Every `uses:` reference in `ci.yml` and `release.yml` points to a major
-  version whose `runs.using` is `node24` (verified against upstream `action.yml`).
+- E1. Every `uses:` reference in `ci.yml` and `release.yml` targets a Node 24
+  runtime (verified against upstream `action.yml`). Floating major tags
+  (`checkout@v7`, `login-action@v4`, `metadata-action@v6`,
+  `build-push-action@v7`, `action-gh-release@v3`) and the immutable
+  SHA-pinned `setup-uv` (`c771a70e # v9.0.0`) are all Node 24.
 - E2. `ci.yml` runs green on `main` after the bump (unit-tests, bdd-tests).
 - E3. The CI run log contains no "Node.js 20 is deprecated" warning for any
   action in the workflow.
@@ -19,9 +22,10 @@ Node.js 24"). All actions in `.github/workflows/` must target Node 24.
 ### Edge cases
 
 - E4. Docker + release actions (`login-action`, `metadata-action`,
-  `build-push-action`, `action-gh-release`) only execute on a tag push; their
-  Node 24 runtime is verified statically via `action.yml` at the pinned major
-  (cannot be executed in-loop without cutting a release).
+  `build-push-action`, `action-gh-release`) and the release workflow only
+  execute on a tag push; their Node 24 runtime is verified statically via
+  `action.yml` at the pinned ref (cannot be executed in-loop without cutting a
+  release).
 
 ### Must NOT happen
 
