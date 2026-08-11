@@ -74,10 +74,10 @@ def main() -> None:
     from expense_report.adapters.out.sqlite_repository import (
         SqliteExpenseRepository,
     )
+    from expense_report.application.correction_state import CorrectionStore
     from expense_report.application.expense_recording import (
         ExpenseRecordingUseCase,
     )
-    from expense_report.domain.correction_state import CorrectionStore
     from expense_report.ports.expense_recording import (
         ExpenseRecorded,
         ExtractionIncomplete,

@@ -26,7 +26,7 @@ def step_have_valid_receipt(context: Any) -> None:
 @given("I have no pending corrections")
 def step_no_pending_corrections(context: Any) -> None:
     """Ensure no pending correction exists for the current user."""
-    from expense_report.domain.correction_state import CorrectionStore
+    from expense_report.application.correction_state import CorrectionStore
 
     if not hasattr(context, "correction_store"):
         context.correction_store = CorrectionStore()

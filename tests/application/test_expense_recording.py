@@ -10,7 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from expense_report.domain.correction_state import CorrectionStore, PendingCorrection
+from expense_report.application.correction_state import CorrectionStore
+from expense_report.domain.correction_state import PendingCorrection
 from expense_report.domain.models import Expense, ExtractionResult
 from expense_report.ports.extraction import ExtractionPort
 from expense_report.ports.repository import ExpenseRepositoryPort

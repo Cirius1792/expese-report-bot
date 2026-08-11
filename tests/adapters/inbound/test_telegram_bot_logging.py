@@ -449,8 +449,9 @@ class TestCorrectionLogging:
 
     def test_correction_flow_logged(self, caplog: pytest.LogCaptureFixture) -> None:
         """Correction flow (pending + refine complete) logs at INFO via the use case."""
+        from expense_report.application.correction_state import CorrectionStore
         from expense_report.application.expense_recording import ExpenseRecordingUseCase
-        from expense_report.domain.correction_state import CorrectionStore, PendingCorrection
+        from expense_report.domain.correction_state import PendingCorrection
         from expense_report.ports.expense_recording import (
             CorrectionResolved,
             RecordExpense,

@@ -22,8 +22,8 @@ from expense_report.adapters.inbound.authorization import (
 from expense_report.adapters.inbound.telegram_bot import register_handlers
 from expense_report.adapters.out.dspy_extraction import DspyExtractionAdapter
 from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
+from expense_report.application.correction_state import CorrectionStore
 from expense_report.application.expense_recording import ExpenseRecordingUseCase
-from expense_report.domain.correction_state import CorrectionStore
 
 _LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 

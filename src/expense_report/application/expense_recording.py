@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from expense_report.domain.correction_state import CorrectionStore, PendingCorrection
+from expense_report.application.correction_state import CorrectionStore
+from expense_report.domain.correction_state import PendingCorrection
 from expense_report.domain.models import Expense, ExtractionResult
 from expense_report.ports.expense_recording import (
     CorrectionLimitReached,

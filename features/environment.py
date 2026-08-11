@@ -125,7 +125,7 @@ _sys.modules["telegram.ext"] = mock_ext
 
 # -- Now safe to import project modules --  # noqa: E402
 from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository  # noqa: E402
-from expense_report.domain.correction_state import CorrectionStore  # noqa: E402
+from expense_report.application.correction_state import CorrectionStore  # noqa: E402
 
 
 def before_all(context: "behave.runner.Context") -> None:
