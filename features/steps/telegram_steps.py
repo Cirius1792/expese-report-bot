@@ -93,8 +93,10 @@ def step_llm_extracts_photo_complete(
             )
 
             adapter = DspyExtractionAdapter()
-            recording = ExpenseRecordingUseCase(adapter, context.repository)
-            handler = _make_photo_handler(recording, context.correction_store)
+            recording = ExpenseRecordingUseCase(
+                adapter, context.repository, context.correction_store
+            )
+            handler = _make_photo_handler(recording)
 
             update = make_telegram_update(
                 context,
@@ -138,8 +140,10 @@ def step_llm_extracts_photo_partial(context: Any, amount: str) -> None:
             )
 
             adapter = DspyExtractionAdapter()
-            recording = ExpenseRecordingUseCase(adapter, context.repository)
-            handler = _make_photo_handler(recording, context.correction_store)
+            recording = ExpenseRecordingUseCase(
+                adapter, context.repository, context.correction_store
+            )
+            handler = _make_photo_handler(recording)
 
             update = make_telegram_update(
                 context,
@@ -179,10 +183,8 @@ def step_send_text_message(context: Any, text: str) -> None:
         )
 
         adapter = DspyExtractionAdapter()
-        recording = ExpenseRecordingUseCase(adapter, context.repository)
-        handler = _make_text_handler(
-            recording, adapter, context.repository, context.correction_store
-        )
+        recording = ExpenseRecordingUseCase(adapter, context.repository, context.correction_store)
+        handler = _make_text_handler(recording)
         update = make_telegram_update(context, text=text)
         ctx = MagicMock()
 

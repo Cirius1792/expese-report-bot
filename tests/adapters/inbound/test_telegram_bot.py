@@ -504,317 +504,146 @@ class TestMissingFields:
 
 
 class TestCorrectionFlow:
-    """Tests for correction flow (partial extraction → user corrects → refine).
+    """Tests for correction outcome rendering through the port boundary.
 
-    Uses real CorrectionStore — tests verify state transitions through the
-    domain object, not mock assertions on the store.
+    The use case owns the Correction lifecycle (covered in tests/application/).
+    These tests verify the adapter renders each outcome type with the expected text.
     """
 
-    def test_text_handler_with_pending_correction_refine_complete_saves_and_removes(
-        self,
-    ) -> None:
-        """Text pending correction: refine completes → save, remove from store."""
-        recording = MagicMock()
-        adapter = MagicMock()
-        repo = MagicMock()
-        store = CorrectionStore()  # real store
-
-        # Setup: pre-populate with a pending correction
-        original = ExtractionResult(
-            amount=Decimal("15.00"),
-            currency=None,
-            merchant=None,
-            date=None,
-            category=None,
-        )
-        store.set(
-            12345, PendingCorrection(user_id=12345, original_result=original, attempt_count=1)
-        )
-
-        refined = ExtractionResult(
-            amount=Decimal("15.00"),
-            currency="EUR",
-            merchant="Cafe",
-            date=date(2026, 7, 20),
-            category=None,
-        )
-        adapter.refine.return_value = refined
-
+    def test_text_handler_renders_correction_resolved(self) -> None:
+        """CorrectionResolved → renders updated-expense confirmation with delete button."""
         from expense_report.adapters.inbound.telegram_bot import (
             _make_text_handler,
         )
-
-        handler = _make_text_handler(recording, adapter, repo, store)
-        update = _make_update(text="Cafe EUR 15")
-        context = MagicMock()
-
-        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2026, 7, 20, 14, 0, 0)
-            asyncio.run(handler(update, context))
-
-        recording.record.assert_not_called()
-        # Verify refine was called with original + correction text
-        adapter.refine.assert_called_once_with(original, "Cafe EUR 15")
-        # Verify complete result was saved
-        repo.save.assert_called_once()
-        saved: Expense = repo.save.call_args[0][0]
-        assert saved.amount == Decimal("15.00")
-        assert saved.merchant == "Cafe"
-        # Verify store was cleared (real store check)
-        assert store.get(12345) is None
-        # Verify confirmation message
-        reply_text = update.effective_message.reply_text.call_args[0][0]
-        assert "Updated and saved" in reply_text
-
-    def test_text_handler_with_pending_correction_still_incomplete_asks_again(
-        self,
-    ) -> None:
-        """Text pending correction: refine still incomplete → ask again, increment attempt."""
-        recording = MagicMock()
-        adapter = MagicMock()
-        repo = MagicMock()
-        store = CorrectionStore()  # real store
-
-        original = ExtractionResult(
-            amount=Decimal("15.00"),
-            currency=None,
-            merchant=None,
-            date=None,
-            category=None,
-        )
-        store.set(
-            12345, PendingCorrection(user_id=12345, original_result=original, attempt_count=1)
-        )
-
-        # Refine result still missing currency, date
-        refined = ExtractionResult(
-            amount=Decimal("15.00"),
-            currency=None,
-            merchant="Cafe",
-            date=None,
-            category=None,
-        )
-        adapter.refine.return_value = refined
-
-        from expense_report.adapters.inbound.telegram_bot import (
-            _make_text_handler,
-        )
-
-        handler = _make_text_handler(recording, adapter, repo, store)
-        update = _make_update(text="Cafe")
-        context = MagicMock()
-
-        asyncio.run(handler(update, context))
-
-        recording.record.assert_not_called()
-        # Verify refine was called
-        adapter.refine.assert_called_once_with(original, "Cafe")
-        # Verify not saved
-        repo.save.assert_not_called()
-        # Verify store was updated with incremented attempt (real store check)
-        pending = store.get(12345)
-        assert pending is not None
-        assert pending.attempt_count == 2
-        assert pending.original_result.amount == Decimal("15.00")
-        # Verify reply asks for missing fields again
-        reply_text = update.effective_message.reply_text.call_args[0][0]
-        assert "partial" in reply_text or "missing" in reply_text
-        assert "currency" in reply_text
-        assert "date" in reply_text
-
-    def test_text_handler_with_pending_correction_maxed_out_removes_and_fails(
-        self,
-    ) -> None:
-        """Text pending correction: maxed out (3rd attempt) → remove, send failure."""
-        recording = MagicMock()
-        adapter = MagicMock()
-        repo = MagicMock()
-        store = CorrectionStore()  # real store
-
-        original = ExtractionResult(
-            amount=Decimal("15.00"),
-            currency=None,
-            merchant=None,
-            date=None,
-            category=None,
-        )
-        store.set(
-            12345, PendingCorrection(user_id=12345, original_result=original, attempt_count=3)
-        )
-
-        # Even a perfect refine result — but 3 attempts already exhausted
-        refined = ExtractionResult(
-            amount=Decimal("15.00"),
-            currency="EUR",
-            merchant="Cafe",
-            date=date(2026, 7, 20),
-            category=None,
-        )
-        adapter.refine.return_value = refined
-
-        from expense_report.adapters.inbound.telegram_bot import (
-            _make_text_handler,
-        )
-
-        handler = _make_text_handler(recording, adapter, repo, store)
-        update = _make_update(text="Cafe EUR 2026-07-20")
-        context = MagicMock()
-
-        asyncio.run(handler(update, context))
-
-        recording.record.assert_not_called()
-        # Verify refine was NOT called (we maxed out before the attempt)
-        adapter.refine.assert_not_called()
-        # Verify not saved
-        repo.save.assert_not_called()
-        # Verify store was removed (real store check)
-        assert store.get(12345) is None
-        # Verify failure message
-        reply_text = update.effective_message.reply_text.call_args[0][0]
-        assert "3 attempts" in reply_text or "could not complete" in reply_text
-
-    def test_photo_handler_partial_extraction_creates_pending_correction(
-        self,
-    ) -> None:
-        """Photo incomplete outcome stores pending correction before asking."""
-        from expense_report.ports.expense_recording import ExtractionIncomplete
-
-        recording = MagicMock()
-        store = CorrectionStore()  # real store
-
-        partial = ExtractionResult(
-            amount=Decimal("25.00"),
-            currency=None,
-            merchant=None,
-            date=None,
-            category=None,
-        )
-        recording.record.return_value = ExtractionIncomplete(partial)
-
-        from expense_report.adapters.inbound.telegram_bot import (
-            _make_photo_handler,
-        )
-
-        handler = _make_photo_handler(recording, store)
-        update = _make_update(photo_file_id="photo-789")
-        context = _make_context(image_bytes=b"receipt-img")
-
-        asyncio.run(handler(update, context))
-
-        # Verify correction was stored (real store check)
-        pending = store.get(12345)
-        assert pending is not None
-        assert pending.original_result.amount == Decimal("25.00")
-        assert pending.user_id == 12345
-        assert pending.attempt_count == 1
-        # Verify missing fields message was sent
-        reply_text = update.effective_message.reply_text.call_args[0][0]
-        assert "partial information" in reply_text
-
-    def test_photo_handler_complete_extraction_no_pending_correction(
-        self,
-    ) -> None:
-        """Photo complete extraction does NOT create pending correction."""
-        from expense_report.ports.expense_recording import ExpenseRecorded
-
-        recording = MagicMock()
-        store = CorrectionStore()  # real store
-
-        complete = ExtractionResult(
-            amount=Decimal("30.00"),
-            currency="USD",
-            merchant="Gas Station",
-            date=date(2026, 7, 22),
-            category="transport",
-        )
-        saved = Expense(
-            id=3,
-            amount=Decimal("30.00"),
-            currency="USD",
-            merchant="Gas Station",
-            date=date(2026, 7, 22),
-            category="transport",
-            user_id=12345,
-            receipt_photo_id="photo-101112",
-            created_at=datetime(2026, 7, 22, 9, 0, 0),
-        )
-        recording.record.return_value = ExpenseRecorded(saved, complete)
-
-        from expense_report.adapters.inbound.telegram_bot import (
-            _make_photo_handler,
-        )
-
-        handler = _make_photo_handler(recording, store)
-        update = _make_update(photo_file_id="photo-101112")
-        context = _make_context(image_bytes=b"receipt-good")
-
-        asyncio.run(handler(update, context))
-
-        # Verify no correction was stored (real store check)
-        assert store.get(12345) is None
-        # Verify confirmation was rendered from the recorded outcome
-        reply_text = update.effective_message.reply_text.call_args[0][0]
-        assert "✅ Saved." in reply_text
-        assert "Gas Station" in reply_text
-
-    def test_text_handler_without_pending_correction_normal_flow(
-        self,
-    ) -> None:
-        """Text handler without pending correction: normal new expense extraction."""
         from expense_report.ports.expense_recording import (
-            ExpenseRecorded,
+            CorrectionResolved,
             RecordExpense,
             RecordingMode,
         )
 
         result = ExtractionResult(
-            amount=Decimal("12.50"),
-            currency="USD",
-            merchant="Coffee Shop",
+            amount=Decimal("15.00"),
+            currency="EUR",
+            merchant="Cafe",
             date=date(2026, 7, 20),
-            category="food",
+            category=None,
         )
-        saved = Expense(
-            id=7,
-            amount=Decimal("12.50"),
-            currency="USD",
-            merchant="Coffee Shop",
+        saved_expense = Expense(
+            id=42,
+            amount=Decimal("15.00"),
+            currency="EUR",
+            merchant="Cafe",
             date=date(2026, 7, 20),
-            category="food",
+            category=None,
             user_id=12345,
             receipt_photo_id=None,
             created_at=datetime(2026, 7, 20, 14, 0, 0),
         )
         recording = MagicMock()
-        recording.record.return_value = ExpenseRecorded(saved, result)
-        adapter = MagicMock()
-        repo = MagicMock()
-        store = CorrectionStore()  # real store, empty (no pending correction)
+        recording.record.return_value = CorrectionResolved(saved_expense, result)
+        handler = _make_text_handler(recording)
+        update = _make_update(text="Cafe EUR 15")
 
+        asyncio.run(handler(update, MagicMock()))
+
+        recording.record.assert_called_once_with(
+            RecordExpense(
+                user_id=12345,
+                source="Cafe EUR 15",
+                source_type="text",
+                mode=RecordingMode.CONVERSATIONAL,
+                receipt_photo_id=None,
+            )
+        )
+        reply_text = update.effective_message.reply_text.call_args[0][0]
+        assert "Updated and saved" in reply_text
+        assert "Expense #42" in reply_text
+        assert "Cafe" in reply_text
+
+    def test_text_handler_renders_correction_still_incomplete(self) -> None:
+        """CorrectionStillIncomplete → renders missing-fields prompt."""
         from expense_report.adapters.inbound.telegram_bot import (
             _make_text_handler,
         )
+        from expense_report.ports.expense_recording import (
+            CorrectionStillIncomplete,
+        )
 
-        handler = _make_text_handler(recording, adapter, repo, store)
-        update = _make_update(text="coffee 12.50 usd")
-        context = MagicMock()
+        result = ExtractionResult(
+            amount=Decimal("15.00"),
+            currency=None,
+            merchant="Cafe",
+            date=None,
+            category=None,
+        )
+        recording = MagicMock()
+        recording.record.return_value = CorrectionStillIncomplete(result, attempt_count=2)
+        handler = _make_text_handler(recording)
+        update = _make_update(text="Cafe")
+
+        asyncio.run(handler(update, MagicMock()))
+
+        reply_text = update.effective_message.reply_text.call_args[0][0]
+        assert "still could not extract" in reply_text
+        assert "currency" in reply_text
+        assert "date" in reply_text
+
+    def test_text_handler_renders_correction_limit_reached(self) -> None:
+        """CorrectionLimitReached → renders max-attempts message."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            _make_text_handler,
+        )
+        from expense_report.ports.expense_recording import (
+            CorrectionLimitReached,
+        )
+
+        recording = MagicMock()
+        recording.record.return_value = CorrectionLimitReached()
+        handler = _make_text_handler(recording)
+        update = _make_update(text="final attempt")
+
+        asyncio.run(handler(update, MagicMock()))
+
+        reply_text = update.effective_message.reply_text.call_args[0][0]
+        assert "3 attempts" in reply_text
+
+    def test_photo_handler_renders_correction_opened(self) -> None:
+        """CorrectionOpened from photo → renders partial-information prompt."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            _make_photo_handler,
+        )
+        from expense_report.ports.expense_recording import (
+            CorrectionOpened,
+            RecordExpense,
+            RecordingMode,
+        )
+
+        partial = ExtractionResult(
+            amount=Decimal("15.00"),
+            currency=None,
+            merchant=None,
+            date=None,
+            category=None,
+        )
+        recording = MagicMock()
+        recording.record.return_value = CorrectionOpened(partial)
+        handler = _make_photo_handler(recording)
+        update = _make_update(photo_file_id="photo-456")
+        context = _make_context(image_bytes=b"blurry-receipt")
 
         asyncio.run(handler(update, context))
 
         recording.record.assert_called_once_with(
             RecordExpense(
                 user_id=12345,
-                source="coffee 12.50 usd",
-                source_type="text",
+                source=b"blurry-receipt",
+                source_type="image",
                 mode=RecordingMode.CONVERSATIONAL,
-                receipt_photo_id=None,
+                receipt_photo_id="photo-456",
             )
         )
-        # Verify store was never touched (real store check)
-        assert store.get(12345) is None
-        # Verify confirmation
         reply_text = update.effective_message.reply_text.call_args[0][0]
-        assert "✅ Saved." in reply_text
+        assert "partial information" in reply_text
 
 
 class TestListHandler:

@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from expense_report.domain.correction_state import CorrectionStore, PendingCorrection
 from expense_report.domain.models import Expense, ExtractionResult
 
 
@@ -219,13 +218,12 @@ class TestPhotoHandlerLogging:
         )
         recording = MagicMock()
         recording.record.return_value = ExpenseRecorded(saved, result)
-        store = CorrectionStore()
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_photo_handler,
         )
 
-        handler = _make_photo_handler(recording, store)
+        handler = _make_photo_handler(recording)
         update = _make_update(user_id=12345, photo_file_id="photo-abc")
         context = _make_context()
 
@@ -242,10 +240,10 @@ class TestPhotoHandlerLogging:
 
     def test_photo_handler_logs_partial_extraction(self, caplog: pytest.LogCaptureFixture) -> None:
         """Photo handler logs partial extraction with missing fields at INFO."""
-        from expense_report.ports.expense_recording import ExtractionIncomplete
+        from expense_report.ports.expense_recording import CorrectionOpened
 
         recording = MagicMock()
-        recording.record.return_value = ExtractionIncomplete(
+        recording.record.return_value = CorrectionOpened(
             ExtractionResult(
                 amount=Decimal("15.00"),
                 currency=None,
@@ -254,13 +252,12 @@ class TestPhotoHandlerLogging:
                 category=None,
             )
         )
-        store = CorrectionStore()
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_photo_handler,
         )
 
-        handler = _make_photo_handler(recording, store)
+        handler = _make_photo_handler(recording)
         update = _make_update(user_id=12345, photo_file_id="photo-partial")
         context = _make_context()
 
@@ -301,13 +298,12 @@ class TestPhotoHandlerLogging:
         )
         recording = MagicMock()
         recording.record.return_value = ExpenseRecorded(saved, result)
-        store = CorrectionStore()
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_photo_handler,
         )
 
-        handler = _make_photo_handler(recording, store)
+        handler = _make_photo_handler(recording)
         update = _make_update(user_id=12345, photo_file_id="photo-abc")
         context = _make_context()
 
@@ -327,14 +323,6 @@ class TestTextHandlerLogging:
 
     def test_text_handler_logs_received(self, caplog: pytest.LogCaptureFixture) -> None:
         """Text handler logs text received at INFO."""
-        adapter = MagicMock()
-        adapter.extract.return_value = ExtractionResult(
-            amount=Decimal("12.50"),
-            currency="USD",
-            merchant="Coffee Shop",
-            date=date(2026, 7, 20),
-            category="food",
-        )
         from expense_report.ports.expense_recording import (
             ExpenseRecorded,
         )
@@ -359,14 +347,12 @@ class TestTextHandlerLogging:
         )
         recording = MagicMock()
         recording.record.return_value = ExpenseRecorded(saved_expense, result)
-        repo = MagicMock()
-        store = CorrectionStore()
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_text_handler,
         )
 
-        handler = _make_text_handler(recording, adapter, repo, store)
+        handler = _make_text_handler(recording)
         source_text = "coffee 12.50 usd"
         update = _make_update(user_id=12345, text=source_text)
         context = MagicMock()
@@ -414,15 +400,12 @@ class TestTextHandlerLogging:
         )
         recording = MagicMock()
         recording.record.return_value = ExpenseRecorded(saved_expense, result)
-        adapter = MagicMock()
-        repo = MagicMock()
-        store = CorrectionStore()
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_text_handler,
         )
 
-        handler = _make_text_handler(recording, adapter, repo, store)
+        handler = _make_text_handler(recording)
         source_text = "coffee 12.50 usd"
         update = _make_update(user_id=12345, text=source_text)
         context = MagicMock()
@@ -448,12 +431,9 @@ class TestTextHandlerLogging:
             _make_text_handler,
         )
 
-        adapter = MagicMock()
         recording = MagicMock()
-        repo = MagicMock()
-        store = CorrectionStore()
 
-        handler = _make_text_handler(recording, adapter, repo, store)
+        handler = _make_text_handler(recording)
         update = _make_update(effective_message=False)
         context = MagicMock()
 
@@ -468,10 +448,18 @@ class TestCorrectionLogging:
     """Verify correction flow produces operational logs."""
 
     def test_correction_flow_logged(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Correction flow (pending + refine complete) logs at INFO."""
-        recording = MagicMock()
-        adapter = MagicMock()
-        repo = MagicMock()
+        """Correction flow (pending + refine complete) logs at INFO via the use case."""
+        from expense_report.application.expense_recording import ExpenseRecordingUseCase
+        from expense_report.domain.correction_state import CorrectionStore, PendingCorrection
+        from expense_report.ports.expense_recording import (
+            CorrectionResolved,
+            RecordExpense,
+            RecordingMode,
+        )
+
+        extraction = MagicMock()
+        repository = MagicMock()
+        repository.save.side_effect = lambda e: e
         store = CorrectionStore()
 
         original = ExtractionResult(
@@ -492,27 +480,26 @@ class TestCorrectionLogging:
             date=date(2026, 7, 20),
             category=None,
         )
-        adapter.refine.return_value = refined
+        extraction.refine.return_value = refined
 
-        from expense_report.adapters.inbound.telegram_bot import (
-            _make_text_handler,
-        )
-
-        handler = _make_text_handler(recording, adapter, repo, store)
-        correction_text = "Cafe EUR 15"
-        update = _make_update(user_id=12345, text=correction_text)
-        context = MagicMock()
+        use_case = ExpenseRecordingUseCase(extraction, repository, store)
 
         caplog.set_level(logging.DEBUG)
+        correction_text = "Cafe EUR 15"
 
-        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2026, 7, 20, 14, 0, 0)
-            asyncio.run(handler(update, context))
+        outcome = use_case.record(
+            RecordExpense(
+                user_id=12345,
+                source=correction_text,
+                source_type="text",
+                mode=RecordingMode.CONVERSATIONAL,
+            )
+        )
 
+        assert isinstance(outcome, CorrectionResolved)
         records = [r for r in caplog.records if r.levelno >= logging.INFO]
         messages = " ".join(r.message for r in records)
         all_messages = " ".join(r.message for r in caplog.records)
-        # Should log something about correction or refine
         assert (
             "correction" in messages.lower()
             or "refine" in messages.lower()

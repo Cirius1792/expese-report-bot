@@ -292,9 +292,7 @@ def test_correction_still_incomplete_increments_attempt(attempt_count: int) -> N
     store = CorrectionStore()
     store.set(
         12345,
-        PendingCorrection(
-            user_id=12345, original_result=original, attempt_count=attempt_count
-        ),
+        PendingCorrection(user_id=12345, original_result=original, attempt_count=attempt_count),
     )
     use_case = ExpenseRecordingUseCase(
         cast(ExtractionPort, extraction),
@@ -311,9 +309,7 @@ def test_correction_still_incomplete_increments_attempt(attempt_count: int) -> N
         )
     )
 
-    assert outcome == CorrectionStillIncomplete(
-        extraction=refined, attempt_count=attempt_count + 1
-    )
+    assert outcome == CorrectionStillIncomplete(extraction=refined, attempt_count=attempt_count + 1)
     extraction.refine.assert_called_once_with(original, "it was EUR")
     extraction.extract.assert_not_called()
     repository.save.assert_not_called()
@@ -338,9 +334,7 @@ def test_correction_maxed_out_returns_limit_reached_without_refining() -> None:
     store = CorrectionStore()
     store.set(
         12345,
-        PendingCorrection(
-            user_id=12345, original_result=_incomplete_extraction(), attempt_count=3
-        ),
+        PendingCorrection(user_id=12345, original_result=_incomplete_extraction(), attempt_count=3),
     )
     use_case = ExpenseRecordingUseCase(
         cast(ExtractionPort, extraction),
@@ -485,9 +479,7 @@ def test_refine_exception_propagates() -> None:
     store = CorrectionStore()
     store.set(
         12345,
-        PendingCorrection(
-            user_id=12345, original_result=_incomplete_extraction(), attempt_count=1
-        ),
+        PendingCorrection(user_id=12345, original_result=_incomplete_extraction(), attempt_count=1),
     )
     use_case = ExpenseRecordingUseCase(
         cast(ExtractionPort, extraction),
@@ -496,9 +488,7 @@ def test_refine_exception_propagates() -> None:
     )
 
     with pytest.raises(RuntimeError, match="refine failed"):
-        use_case.record(
-            RecordExpense(12345, "correction", "text", RecordingMode.CONVERSATIONAL)
-        )
+        use_case.record(RecordExpense(12345, "correction", "text", RecordingMode.CONVERSATIONAL))
 
     assert store.get(12345) is not None  # pending state untouched by the failure
 

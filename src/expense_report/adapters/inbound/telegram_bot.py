@@ -1,7 +1,7 @@
 """Telegram bot handlers for expense report bot.
 
 Driving adapter that handles /start, /report, photo, and text messages.
-Uses dependency injection for ExtractionPort and ExpenseRepositoryPort.
+Uses dependency injection for ExpenseRecordingPort and ExpenseRepositoryPort.
 """
 
 from __future__ import annotations
@@ -22,17 +22,19 @@ from telegram.ext import (
     filters,
 )
 
-from expense_report.domain.correction_state import CorrectionStore, PendingCorrection
 from expense_report.domain.csv_generator import generate_csv
 from expense_report.domain.models import Expense, ExtractionResult
 from expense_report.ports.expense_recording import (
+    CorrectionLimitReached,
+    CorrectionOpened,
+    CorrectionResolved,
+    CorrectionStillIncomplete,
     ExpenseRecorded,
     ExpenseRecordingPort,
     ExtractionIncomplete,
     RecordExpense,
     RecordingMode,
 )
-from expense_report.ports.extraction import ExtractionPort
 from expense_report.ports.repository import ExpenseRepositoryPort
 
 logger = logging.getLogger(__name__)
@@ -371,9 +373,7 @@ def _make_delete_handler(repository: ExpenseRepositoryPort):
 def register_handlers(
     app: Application,
     expense_recording: ExpenseRecordingPort,
-    extraction_adapter: ExtractionPort,
     repository: ExpenseRepositoryPort,
-    correction_store: CorrectionStore,
 ) -> None:
     """Register all bot command and message handlers."""
     app.add_handler(CommandHandler("start", _handle_start))
@@ -395,13 +395,13 @@ def register_handlers(
     app.add_handler(
         MessageHandler(
             filters.PHOTO,
-            _make_photo_handler(expense_recording, correction_store),
+            _make_photo_handler(expense_recording),
         )
     )
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
-            _make_text_handler(expense_recording, extraction_adapter, repository, correction_store),
+            _make_text_handler(expense_recording),
         )
     )
 
@@ -458,9 +458,8 @@ def _make_report_handler(
 
 def _make_photo_handler(
     expense_recording: ExpenseRecordingPort,
-    correction_store: CorrectionStore,
 ):
-    """Factory: create a photo handler bound to the recording port and correction store."""
+    """Factory: create a photo handler bound to the recording port."""
 
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.effective_message is None or update.effective_user is None:
@@ -485,7 +484,7 @@ def _make_photo_handler(
             )
         )
 
-        if isinstance(outcome, ExtractionIncomplete):
+        if isinstance(outcome, CorrectionOpened):
             result = outcome.extraction
             missing = _missing_fields(result)
             logger.info(
@@ -493,29 +492,20 @@ def _make_photo_handler(
                 user_id,
                 ", ".join(missing),
             )
-            correction_store.set(
-                user_id,
-                PendingCorrection(
-                    user_id=user_id,
-                    original_result=result,
-                ),
-            )
             await _reply_with_incomplete_extraction(update, result)
             return
 
         logger.info("Complete extraction for user %s photo", user_id)
-        await _reply_with_recorded_expense(update, outcome)
+        if isinstance(outcome, ExpenseRecorded):
+            await _reply_with_recorded_expense(update, outcome)
 
     return handler
 
 
 def _make_text_handler(
     expense_recording: ExpenseRecordingPort,
-    extraction_adapter: ExtractionPort,
-    repository: ExpenseRepositoryPort,
-    correction_store: CorrectionStore,
 ):
-    """Factory: create a text handler bound to the given adapters."""
+    """Factory: create a text handler that delegates all workflow to the recording port."""
 
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.effective_message is None or update.effective_user is None:
@@ -528,27 +518,8 @@ def _make_text_handler(
             return
 
         user_id = update.effective_user.id
-        pending = correction_store.get(user_id)
-
-        if pending is not None:
-            logger.info(
-                "Correction received from user %s (attempt %s/3)",
-                user_id,
-                pending.attempt_count,
-            )
-            # Correction flow: refine with user's correction text
-            await _handle_correction(
-                update,
-                pending,
-                text,
-                extraction_adapter,
-                repository,
-                correction_store,
-            )
-            return
-
-        # No pending correction — treat as new text expense
         logger.info("Text received from user %s", user_id)
+
         outcome = expense_recording.record(
             RecordExpense(
                 user_id=user_id,
@@ -559,23 +530,28 @@ def _make_text_handler(
             )
         )
 
-        if isinstance(outcome, ExtractionIncomplete):
+        if isinstance(outcome, ExpenseRecorded):
+            await _reply_with_recorded_expense(update, outcome)
+        elif isinstance(outcome, CorrectionOpened):
+            await _reply_with_incomplete_extraction(update, outcome.extraction)
+        elif isinstance(outcome, CorrectionResolved):
+            await _reply_with_resolved_correction(update, outcome)
+        elif isinstance(outcome, CorrectionStillIncomplete):
             result = outcome.extraction
             missing = _missing_fields(result)
-            logger.info(
-                "Partial extraction for user %s text: missing %s",
-                user_id,
-                ", ".join(missing),
+            await update.effective_message.reply_text(
+                f"I still could not extract all fields."
+                f" Missing: {', '.join(missing)}."
+                f" Please provide the missing details."
             )
-            correction_store.set(
-                user_id,
-                PendingCorrection(user_id=user_id, original_result=result),
+        elif isinstance(outcome, CorrectionLimitReached):
+            await update.effective_message.reply_text(
+                "I couldn't complete the extraction after 3 attempts."
+                " Please send a new photo or description."
             )
-            await _reply_with_incomplete_extraction(update, result)
-            return
-
-        logger.info("Complete extraction for user %s text", user_id)
-        await _reply_with_recorded_expense(update, outcome)
+        elif isinstance(outcome, ExtractionIncomplete):
+            # ONE_SHOT incomplete — shouldn't arrive for Telegram, but handle gracefully
+            await _reply_with_incomplete_extraction(update, outcome.extraction)
 
     return handler
 
@@ -605,92 +581,30 @@ async def _reply_with_recorded_expense(
     await update.effective_message.reply_text(summary, reply_markup=keyboard)
 
 
-async def _handle_correction(
+async def _reply_with_resolved_correction(
     update: Update,
-    pending: PendingCorrection,
-    correction_text: str,
-    extraction_adapter: ExtractionPort,
-    repository: ExpenseRepositoryPort,
-    correction_store: CorrectionStore,
+    outcome: "CorrectionResolved",
 ) -> None:
-    """Handle a correction message from a user with a pending partial extraction."""
+    """Render the resolved-correction confirmation with delete button."""
     if update.effective_message is None or update.effective_user is None:
         return
 
-    user_id = update.effective_user.id
-
-    if pending.maxed_out:
-        logger.info(
-            "Correction maxed out for user %s (attempt %s/3), clearing",
-            user_id,
-            pending.attempt_count,
-        )
-        correction_store.remove(user_id)
-        await update.effective_message.reply_text(
-            "I couldn't complete the extraction after 3 attempts."
-            " Please send a new photo or description."
-        )
-        return
-
-    refined = extraction_adapter.refine(pending.original_result, correction_text)
-
-    if refined.is_complete:
-        assert refined.amount is not None and refined.currency is not None
-        assert refined.merchant is not None and refined.date is not None
-
-        # Save and clear pending
-        expense = Expense(
-            id=None,
-            amount=refined.amount,
-            currency=refined.currency,
-            merchant=refined.merchant,
-            date=refined.date,
-            category=refined.category,
-            user_id=user_id,
-            receipt_photo_id=None,
-            created_at=datetime.now(),
-        )
-        saved_expense = repository.save(expense)
-        correction_store.remove(user_id)
-        logger.info(
-            "Correction resolved for user %s: saved updated expense",
-            user_id,
-        )
-
-        summary = (
-            f"📄 *Updated expense:*\n"
-            f"Expense #{saved_expense.id}\n"
-            f"Amount: {refined.amount} {refined.currency}\n"
-            f"Merchant: {refined.merchant}\n"
-            f"Date: {refined.date}\n"
-            f"Category: {refined.category or '—'}\n\n"
-            f"✅ Updated and saved."
-        )
-        keyboard = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("🗑️ Delete", callback_data=f"delete:{saved_expense.id}")]]
-        )
-        await update.effective_message.reply_text(summary, reply_markup=keyboard)
-    else:
-        # Still incomplete — update attempt and ask again
-        updated = PendingCorrection(
-            user_id=user_id,
-            original_result=pending.original_result,
-            attempt_count=pending.attempt_count + 1,
-        )
-        correction_store.set(user_id, updated)
-        logger.info(
-            "Correction still incomplete for user %s (attempt %s)",
-            user_id,
-            updated.attempt_count,
-        )
-
-        missing = _missing_fields(refined)
-        msg = (
-            f"I still could not extract all fields."
-            f" Missing: {', '.join(missing)}."
-            f" Please provide the missing details."
-        )
-        await update.effective_message.reply_text(msg)
+    result = outcome.extraction
+    saved_expense = outcome.expense
+    logger.info("Saved expense %s for user %s", saved_expense.id, update.effective_user.id)
+    summary = (
+        f"📄 *Updated expense:*\n"
+        f"Expense #{saved_expense.id}\n"
+        f"Amount: {result.amount} {result.currency}\n"
+        f"Merchant: {result.merchant}\n"
+        f"Date: {result.date}\n"
+        f"Category: {result.category or '—'}\n\n"
+        f"✅ Updated and saved."
+    )
+    keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🗑️ Delete", callback_data=f"delete:{saved_expense.id}")]]
+    )
+    await update.effective_message.reply_text(summary, reply_markup=keyboard)
 
 
 async def _reply_with_incomplete_extraction(

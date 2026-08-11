@@ -77,15 +77,17 @@ def main() -> None:
     from expense_report.application.expense_recording import (
         ExpenseRecordingUseCase,
     )
+    from expense_report.domain.correction_state import CorrectionStore
     from expense_report.ports.expense_recording import (
         ExpenseRecorded,
+        ExtractionIncomplete,
         RecordExpense,
         RecordingMode,
     )
 
     extractor = DspyExtractionAdapter()
     repo = SqliteExpenseRepository(args.db)
-    expense_recording = ExpenseRecordingUseCase(extractor, repo)
+    expense_recording = ExpenseRecordingUseCase(extractor, repo, CorrectionStore())
 
     source: str | bytes
     source_type: Literal["image", "text"]
@@ -108,7 +110,12 @@ def main() -> None:
             receipt_photo_id=None,
         )
     )
-    result = outcome.extraction
+    if isinstance(outcome, ExpenseRecorded):
+        result = outcome.extraction
+    elif isinstance(outcome, ExtractionIncomplete):
+        result = outcome.extraction
+    else:
+        raise AssertionError(f"Unexpected ONE_SHOT outcome: {type(outcome).__name__}")
 
     _print_extraction_result(source_label, result)
 

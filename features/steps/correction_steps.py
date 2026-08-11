@@ -185,10 +185,10 @@ def _execute_text_handler_with_refine(
         )
 
         adapter = DspyExtractionAdapter()
-        recording = MagicMock()
-        handler = _make_text_handler(
-            recording, adapter, context.repository, context.correction_store
-        )
+        from expense_report.application.expense_recording import ExpenseRecordingUseCase
+
+        recording = ExpenseRecordingUseCase(adapter, context.repository, context.correction_store)
+        handler = _make_text_handler(recording)
 
         text = getattr(context, "correction_text", "correction")
         update = make_telegram_update(context, text=text)
@@ -215,8 +215,10 @@ def step_reply_another_correction(context: Any) -> None:
     )
 
     adapter = DspyExtractionAdapter()
-    recording = MagicMock()
-    handler = _make_text_handler(recording, adapter, context.repository, context.correction_store)
+    from expense_report.application.expense_recording import ExpenseRecordingUseCase
+
+    recording = ExpenseRecordingUseCase(adapter, context.repository, context.correction_store)
+    handler = _make_text_handler(recording)
 
     update = make_telegram_update(context, text="another correction")
     ctx = MagicMock()

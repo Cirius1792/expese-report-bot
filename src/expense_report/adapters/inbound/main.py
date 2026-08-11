@@ -88,10 +88,10 @@ def main() -> None:
     extraction = DspyExtractionAdapter()
     repository = SqliteExpenseRepository(db_path=db_path)
     correction_store = CorrectionStore()
-    expense_recording = ExpenseRecordingUseCase(extraction, repository)
+    expense_recording = ExpenseRecordingUseCase(extraction, repository, correction_store)
 
     app = Application.builder().token(token).build()
     register_authorization_guard(app, authorized_user_ids, unauthorized_audit)
-    register_handlers(app, expense_recording, extraction, repository, correction_store)
+    register_handlers(app, expense_recording, repository)
     logger.info("Bot started, entering polling loop")
     app.run_polling()
