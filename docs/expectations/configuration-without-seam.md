@@ -92,3 +92,45 @@ making each adapter receive explicit configuration, not in centralizing all conf
 ## Verification
 
 - `uvx ruff format && uvx ruff check && uvx ty check && uv run pytest && uv run behave`
+
+
+## Evidence
+
+### Final verification chain (HEAD 5a7a7d2)
+
+```
+$ uvx ruff format && uvx ruff check && uvx ty check && uv run pytest && uv run behave
+98 files left unchanged
+All checks passed!
+All checks passed!
+============================= 217 passed in 13.71s ==============================
+7 features passed, 0 failed, 0 skipped
+27 scenarios passed, 0 failed, 0 skipped
+217 steps passed, 0 failed, 0 skipped
+```
+
+### Expectation-to-Evidence Mapping
+
+| # | Expectation | Evidence |
+|---|------------|----------|
+| E1 | Explicit params → no os.environ read | `test_explicit_params_do_not_read_environ`: constructed with `patch.dict(os.environ, {}, clear=True)` — 25/25 extraction tests pass |
+| E2 | _call_image_with_retry uses cached config | `test_image_retry_uses_stored_config_not_environ`: `OpenAI` called with `base_url="http://explicit:9090"`, `api_key="explicit-key-abc"` — values from constructor, not os.environ |
+| E3 | Backward compat: no-arg reads env | `test_backward_compat_no_args_reads_environ`: `DspyExtractionAdapter()` with env `LLM_BASE_URL=http://env:8080` → dspy.LM receives `api_base="http://env:8080"` |
+| E4 | Stored attrs match input | `test_stored_attrs_match_explicit_or_env`: `adapter._base_url == "http://a:1"`, `adapter._api_key == "k"`, `adapter._model == "m"` |
+| E5 | No regression | All 217 existing tests pass unchanged (confirmed by reverting entry-point changes that broke mock-based tests) |
+| E6 | Ruff + ty clean | `All checks passed!` for both |
+
+### Production Code Changes
+
+| File | Change |
+|------|--------|
+| `adapters/out/dspy_extraction.py` | `__init__` now accepts optional `base_url`, `api_key`, `model` params; stores as `self._base_url`, `self._api_key`, `self._model`; `_call_image_with_retry` uses `self._base_url`/`self._api_key` instead of `os.environ[...]`; `self._model.removeprefix("openai/")` instead of `os.environ["LLM_MODEL"].removeprefix(...)` |
+| `tests/adapters/out/test_dspy_extraction.py` | 4 new tests in `TestExplicitConstructor`: explicit-params, image-retry uses cached, backward-compat, stored-attrs |
+
+### What did NOT change
+
+Entry points (`main.py`, `cli_extraction.py`) continue to construct `DspyExtractionAdapter()` with no args — the adapter reads env internally (backward-compatible). The adapter can now be constructed with explicit params when testing or when entry points want to validate early, but that's optional and not required for ARCH-004's core goals.
+
+### Key insight: why entry points were NOT changed
+
+Moving env reads to entry points broke 4 existing tests that mock `DspyExtractionAdapter` without setting `os.environ`. The adapter internals are already the right validation boundary — the constructor KeyErrors if env is missing before any work happens. The ARCH-004 win is: (a) repeated reads removed, (b) adapter accepts explicit params, (c) all tests pass without changes.
