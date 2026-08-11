@@ -101,7 +101,7 @@ After completing an item:
 | Field | Value |
 |-------|-------|
 | **Priority** | P0 — blocks all other driving-side improvements |
-| **Status** | `In progress` |
+| **Status** | `Resolved` |
 | **Files/Symbols** | `src/expense_report/adapters/inbound/telegram_bot.py`: `_make_photo_handler`, `_make_text_handler`, `_respond_to_extraction`, `_handle_correction`; `src/expense_report/adapters/inbound/cli_extraction.py`: `main()` |
 | **Problem** | Business orchestration (decide if extraction is complete → if so, create Expense domain object → save to repository → format response; if not, set up Correction → re-extract → save → clear) lives **inside** PTB handler factories. There is no Application/Use-Case Module that represents "record an expense from an extraction" or "handle a correction attempt." The Telegram Adapter's `register_handlers` takes concrete dependencies (`ExtractionPort`, `ExpenseRepositoryPort`, `CorrectionStore`) but the orchestration decision tree, expense creation, and response formatting are embedded inside handler closures. The CLI adapter's `main()` independently re-implements its own `extract→check→save` pipeline — the same logic in a second location, with no correction flow at all. Two copies of the same pipeline means bugs can exist in one but not the other. |
 | **Deletion test** | Delete `telegram_bot.py`. The CLI adapter still exists but handles only extract→save with no correction flow. Delete `cli_extraction.py`. CLI users lose the ability to extract from files/text. The orchestration logic (extract→check→save) still exists only inside `telegram_bot.py`. Complexity is concentrated and partly duplicated — positive signal for a Seam. |
@@ -121,7 +121,7 @@ After completing an item:
 | Field | Value |
 |-------|-------|
 | **Priority** | P0 (designed alongside ARCH-001) |
-| **Status** | `In progress` |
+| **Status** | `Resolved` |
 | **Files/Symbols** | `src/expense_report/ports/` (only `extraction.py` and `repository.py` exist — both driven); `docs/adr/0001-initial-architecture.md` |
 | **Problem** | ADR 0001 requires "Every adapter must implement a port protocol defined in `src/expense_report/ports/`." This requirement works for driven adapters (ExtractionPort, ExpenseRepositoryPort each have one Implementation each — hypothetical Seam until a second Adapter appears). But driving-side use-case Protocols do not exist at all. Without them, the Telegram Adapter has no port Interface to call into — it calls the concrete orchestration logic directly. ADR 0001's wording describes the driven-side relationship; applying it literally to driving adapters would require them to **implement** a port Protocol, which contradicts hexagonal convention (driving adapters **call into** ports, they don't implement them). This tension should be resolved either by clarifying ADR 0001 or creating a separate convention for driving-side Protocols. |
 | **Deletion test** | Delete `ports/`. Callers would depend directly on concrete outbound Adapters; that coupling would become visible in the import graph, static checks, and tests. The PTB framework would remain the only inbound interaction point. |
@@ -215,13 +215,6 @@ After completing an item:
 
 ## 6. Recommended Execution Order
 
-```
-Iteration 1 (P0)
-  ├── ARCH-001: Expense recording and Correction orchestration
-  │       (Application Module — includes CLI duplication as evidence)
-  └── ARCH-002: Driving Interface ownership / ADR 0001 clarification
-          (designed alongside ARCH-001)
-
 Iteration 2 (P1 — consequence of I1)
   └── ARCH-003: Expense browsing / reporting policy
           (formatting + orchestration extracted from Telegram)
@@ -263,6 +256,12 @@ After completing an item:
 ---
 
 ## 8. Decision Log
+
+| Date | Item | Decision | ADR |
+|------|------|----------|-----|
+| 2026-08-11 | ARCH-001 | Resolved. Photo recording (Telegram + CLI) and the entire Correction lifecycle (pending routing, refine/extract dispatch, attempt counting, max-out, save-and-clear) now owned by ExpenseRecordingUseCase behind ExpenseRecordingPort. Both driving Adapters are thin translation+rendering layers. CorrectionStore migrated to application/ (half of ARCH-005). | ADR 0006 |
+| 2026-08-11 | ARCH-002 | Resolved. ADR 0006 already clarified that driving Adapters consume driving-ports (Protocols defined in ports/), not implement them. ADR 0001 Consequences section reflects this. Use case exercised through the same driving Interface as production Adapters. | ADR 0006 |
+
 
 | Date | Item | Decision | ADR |
 |------|------|----------|-----|
