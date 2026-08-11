@@ -406,7 +406,7 @@ wheels = [
 
 [[package]]
 name = "expense-report-bot"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "dspy-ai" },
