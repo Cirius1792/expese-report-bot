@@ -110,14 +110,14 @@ class TestReportHandlerLogging:
 
     def test_report_handler_logs_user_request(self, caplog: pytest.LogCaptureFixture) -> None:
         """Handler logs user requested report at INFO."""
-        repo = MagicMock()
-        repo.get_by_user_and_month.return_value = []
+        queries = MagicMock(spec=ExpenseQueryPort)
+        queries.generate_csv_report.return_value = "date,merchant,category,amount,currency\n"
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_report_handler,
         )
 
-        handler = _make_report_handler(repo)
+        handler = _make_report_handler(queries)
         update = _make_update(user_id=55555)
         context = MagicMock()
 
@@ -134,14 +134,14 @@ class TestReportHandlerLogging:
 
     def test_report_handler_logs_no_expenses(self, caplog: pytest.LogCaptureFixture) -> None:
         """Handler logs 'no expenses' at INFO when no expenses found."""
-        repo = MagicMock()
-        repo.get_by_user_and_month.return_value = []
+        queries = MagicMock(spec=ExpenseQueryPort)
+        queries.generate_csv_report.return_value = "date,merchant,category,amount,currency\n"
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_report_handler,
         )
 
-        handler = _make_report_handler(repo)
+        handler = _make_report_handler(queries)
         update = _make_update(user_id=12345)
         context = MagicMock()
 
@@ -157,26 +157,15 @@ class TestReportHandlerLogging:
 
     def test_report_handler_logs_generated(self, caplog: pytest.LogCaptureFixture) -> None:
         """Handler logs report generated with count at INFO."""
-        repo = MagicMock()
-        repo.get_by_user_and_month.return_value = [
-            MagicMock(
-                id="e1",
-                amount=Decimal("10.00"),
-                currency="EUR",
-                merchant="Shop A",
-                date=date(2026, 7, 1),
-                category="food",
-                user_id=12345,
-                receipt_photo_id=None,
-                created_at=datetime(2026, 7, 1, 10, 0, 0),
-            )
-        ]
+        queries = MagicMock(spec=ExpenseQueryPort)
+        queries.generate_csv_report.return_value = "date,merchant,category,amount,currency\n2026-07-01,Shop A,food,10.00,EUR\n"
+
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_report_handler,
         )
 
-        handler = _make_report_handler(repo)
+        handler = _make_report_handler(queries)
         update = _make_update(user_id=12345)
         context = MagicMock()
 

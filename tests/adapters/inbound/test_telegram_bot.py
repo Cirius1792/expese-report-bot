@@ -21,6 +21,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from expense_report.domain.models import Expense, ExtractionResult
+from expense_report.ports.expense_queries import DeletionResult, ExpenseQueryPort, PeriodSummary
 
 
 def _make_update(
@@ -54,6 +55,13 @@ def _make_context(
     mock_file.download_as_bytearray = AsyncMock(return_value=image_bytes)
     context.bot.get_file = AsyncMock(return_value=mock_file)
     return context
+
+
+def _make_queries_mock() -> MagicMock:
+    """Create a MagicMock(spec=ExpenseQueryPort) for adapter tests."""
+    return MagicMock(spec=ExpenseQueryPort)
+
+
 
 
 class TestStartHandler:
@@ -331,37 +339,15 @@ class TestReportHandler:
 
     def test_with_expenses_sends_csv(self) -> None:
         """Report with expenses sends CSV document and count message."""
-        repo = MagicMock()
-        repo.get_by_user_and_month.return_value = [
-            Expense(
-                id=1,
-                amount=Decimal("10.00"),
-                currency="EUR",
-                merchant="Shop A",
-                date=date(2026, 7, 1),
-                category="shopping",
-                user_id=12345,
-                receipt_photo_id=None,
-                created_at=datetime(2026, 7, 1, 10, 0, 0),
-            ),
-            Expense(
-                id=2,
-                amount=Decimal("20.50"),
-                currency="EUR",
-                merchant="Shop B",
-                date=date(2026, 7, 2),
-                category="food",
-                user_id=12345,
-                receipt_photo_id=None,
-                created_at=datetime(2026, 7, 2, 11, 0, 0),
-            ),
-        ]
+        queries = _make_queries_mock()
+        queries.generate_csv_report.return_value = "date,merchant,category,amount,currency\n2026-07-01,Shop A,shopping,10.00,EUR\n2026-07-02,Shop B,food,20.50,EUR\n"
+
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_report_handler,
         )
 
-        handler = _make_report_handler(repo)
+        handler = _make_report_handler(queries)
         update = _make_update()
         context = MagicMock()
 
@@ -369,7 +355,7 @@ class TestReportHandler:
             mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
             asyncio.run(handler(update, context))
 
-        repo.get_by_user_and_month.assert_called_once_with(12345, 2026, 7)
+        queries.generate_csv_report.assert_called_once_with(12345, 2026, 7)
 
         # Verify document was sent
         update.effective_message.reply_document.assert_awaited_once()
@@ -388,14 +374,14 @@ class TestReportHandler:
 
     def test_no_expenses_reports_empty(self) -> None:
         """Report with no expenses sends 'no expenses' message."""
-        repo = MagicMock()
-        repo.get_by_user_and_month.return_value = []
+        queries = _make_queries_mock()
+        queries.generate_csv_report.return_value = "date,merchant,category,amount,currency\n"
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_report_handler,
         )
 
-        handler = _make_report_handler(repo)
+        handler = _make_report_handler(queries)
         update = _make_update()
         context = MagicMock()
 
@@ -403,22 +389,22 @@ class TestReportHandler:
             mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
             asyncio.run(handler(update, context))
 
-        repo.get_by_user_and_month.assert_called_once_with(12345, 2026, 7)
+        queries.generate_csv_report.assert_called_once_with(12345, 2026, 7)
         update.effective_message.reply_document.assert_not_awaited()
 
         reply_text = update.effective_message.reply_text.call_args[0][0]
         assert "No expenses recorded for 2026-07" in reply_text
 
     def test_multi_user_isolation(self) -> None:
-        """Each user only sees their own expenses (user_id passed to repo)."""
-        repo = MagicMock()
-        repo.get_by_user_and_month.return_value = []
+        """Each user only sees their own expenses (user_id passed to queries)."""
+        queries = _make_queries_mock()
+        queries.generate_csv_report.return_value = "date,merchant,category,amount,currency\n"
 
         from expense_report.adapters.inbound.telegram_bot import (
             _make_report_handler,
         )
 
-        handler = _make_report_handler(repo)
+        handler = _make_report_handler(queries)
         update = _make_update(user_id=99999)
         context = MagicMock()
 
@@ -426,7 +412,7 @@ class TestReportHandler:
             mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
             asyncio.run(handler(update, context))
 
-        repo.get_by_user_and_month.assert_called_once_with(99999, 2026, 7)
+        queries.generate_csv_report.assert_called_once_with(99999, 2026, 7)
 
 
 class TestRegisterHandlers:
@@ -445,9 +431,9 @@ class TestRegisterHandlers:
 
         app = MagicMock()
         recording = MagicMock()
-        repo = MagicMock()
+        queries = _make_queries_mock()
 
-        register_handlers(app, recording, repo)
+        register_handlers(app, recording, queries)
 
         # Verify 8 handlers were registered
         assert app.add_handler.call_count == 8
@@ -651,9 +637,13 @@ class TestListHandler:
 
     def test_shows_current_month_expenses_and_total(self) -> None:
         """List handler shows current month expenses and total."""
-        repo = MagicMock()
-        repo.get_months_with_expenses.return_value = {7, 3}
-        repo.get_by_user_and_month.return_value = [
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={2026: {7, 3}},
+            active_year=2026,
+            active_month=7,
+        )
+        queries.get_month_expenses.return_value = [
             Expense(
                 id=1,
                 amount=Decimal("42.50"),
@@ -680,7 +670,7 @@ class TestListHandler:
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_handler
 
-        handler = _make_list_handler(repo)
+        handler = _make_list_handler(queries)
         update = _make_update()
         context = MagicMock()
 
@@ -688,9 +678,8 @@ class TestListHandler:
             mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
             asyncio.run(handler(update, context))
 
-        repo.get_months_with_expenses.assert_any_call(12345, 2026)
-        repo.get_months_with_expenses.assert_any_call(12345, 2025)
-        repo.get_by_user_and_month.assert_called_once_with(12345, 2026, 7)
+        queries.discover_periods.assert_called_once_with(12345)
+        queries.get_month_expenses.assert_called_once_with(12345, 2026, 7)
 
         # Verify reply includes expense data and total
         reply_text = update.effective_message.reply_text.call_args[0][0]
@@ -705,12 +694,13 @@ class TestListHandler:
     def test_shows_current_month_and_year_buttons(self) -> None:
         """List handler generates correct inline button labels."""
 
-        repo = MagicMock()
-        repo.get_months_with_expenses.side_effect = [
-            {7, 3},  # 2026
-            set(),  # 2025 (none)
-        ]
-        repo.get_by_user_and_month.return_value = [
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={2026: {7, 3}},
+            active_year=2026,
+            active_month=7,
+        )
+        queries.get_month_expenses.return_value = [
             Expense(
                 id=1,
                 amount=Decimal("42.50"),
@@ -726,7 +716,7 @@ class TestListHandler:
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_handler
 
-        handler = _make_list_handler(repo)
+        handler = _make_list_handler(queries)
         update = _make_update()
         context = MagicMock()
 
@@ -750,12 +740,13 @@ class TestListHandler:
 
     def test_previous_year_button_when_expenses_exist(self) -> None:
         """Both 2026 and 2025 buttons shown when both years have expenses."""
-        repo = MagicMock()
-        repo.get_months_with_expenses.side_effect = [
-            {7},  # 2026
-            {12, 1},  # 2025
-        ]
-        repo.get_by_user_and_month.return_value = [
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={2026: {7}, 2025: {12, 1}},
+            active_year=2026,
+            active_month=7,
+        )
+        queries.get_month_expenses.return_value = [
             Expense(
                 id=2,
                 amount=Decimal("10.00"),
@@ -771,7 +762,7 @@ class TestListHandler:
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_handler
 
-        handler = _make_list_handler(repo)
+        handler = _make_list_handler(queries)
         update = _make_update()
         context = MagicMock()
 
@@ -787,15 +778,16 @@ class TestListHandler:
 
     def test_no_expenses_shows_informative_message(self) -> None:
         """When no expenses exist at all, show message without buttons."""
-        repo = MagicMock()
-        repo.get_months_with_expenses.side_effect = [
-            set(),  # 2026
-            set(),  # 2025
-        ]
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={},
+            active_year=2026,
+            active_month=7,
+        )
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_handler
 
-        handler = _make_list_handler(repo)
+        handler = _make_list_handler(queries)
         update = _make_update()
         context = MagicMock()
 
@@ -809,12 +801,13 @@ class TestListHandler:
 
     def test_previous_year_only_shows_that_year(self) -> None:
         """When user has expenses only in previous year, shows that year's data."""
-        repo = MagicMock()
-        repo.get_months_with_expenses.side_effect = [
-            set(),  # 2026 — no data
-            {12},  # 2025 — only December
-        ]
-        repo.get_by_user_and_month.return_value = [
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={2025: {12}},
+            active_year=2025,
+            active_month=12,
+        )
+        queries.get_month_expenses.return_value = [
             Expense(
                 id=3,
                 amount=Decimal("15.00"),
@@ -830,7 +823,7 @@ class TestListHandler:
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_handler
 
-        handler = _make_list_handler(repo)
+        handler = _make_list_handler(queries)
         update = _make_update()
         context = MagicMock()
 
@@ -839,7 +832,7 @@ class TestListHandler:
             asyncio.run(handler(update, context))
 
         # Should query 2025-12, not current 2026-07
-        repo.get_by_user_and_month.assert_called_once_with(12345, 2025, 12)
+        queries.get_month_expenses.assert_called_once_with(12345, 2025, 12)
 
         markup = update.effective_message.reply_text.call_args[1]["reply_markup"]
         keyboard = markup.inline_keyboard
@@ -849,17 +842,18 @@ class TestListHandler:
         assert month_buttons == ["Dec"]
 
     def test_multi_user_isolation(self) -> None:
-        """User 99999 sees a different user_id passed to repo."""
-        repo = MagicMock()
-        repo.get_months_with_expenses.side_effect = [
-            {7},
-            set(),
-        ]
-        repo.get_by_user_and_month.return_value = []
+        """User 99999 sees a different user_id passed to queries."""
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={2026: {7}},
+            active_year=2026,
+            active_month=7,
+        )
+        queries.get_month_expenses.return_value = []
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_handler
 
-        handler = _make_list_handler(repo)
+        handler = _make_list_handler(queries)
         update = _make_update(user_id=99999)
         context = MagicMock()
 
@@ -867,8 +861,8 @@ class TestListHandler:
             mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
             asyncio.run(handler(update, context))
 
-        repo.get_months_with_expenses.assert_any_call(99999, 2026)
-        repo.get_by_user_and_month.assert_called_once_with(99999, 2026, 7)
+        queries.discover_periods.assert_called_once_with(99999)
+        queries.get_month_expenses.assert_called_once_with(99999, 2026, 7)
 
     def test_format_month_view_includes_expense_ids(self) -> None:
         """Month view shows integer expense IDs for /delete reference."""
@@ -917,8 +911,13 @@ class TestListCallbackHandler:
 
     def test_month_callback_updates_message(self) -> None:
         """Tapping a month button edits the message to show that month."""
-        repo = MagicMock()
-        repo.get_by_user_and_month.return_value = [
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={2026: {7, 3}},
+            active_year=2026,
+            active_month=7,
+        )
+        queries.get_month_expenses.return_value = [
             Expense(
                 id=4,
                 amount=Decimal("30.00"),
@@ -931,14 +930,9 @@ class TestListCallbackHandler:
                 created_at=datetime(2026, 3, 5, 10, 0, 0),
             ),
         ]
-        repo.get_months_with_expenses.side_effect = lambda uid, year: {
-            2026: {7, 3},
-            2025: set(),
-        }.get(year, set())
-
         from expense_report.adapters.inbound.telegram_bot import _make_list_callback_handler
 
-        handler = _make_list_callback_handler(repo)
+        handler = _make_list_callback_handler(queries)
         update = _make_callback_update(callback_data="month:2026:3")
         context = MagicMock()
 
@@ -950,7 +944,7 @@ class TestListCallbackHandler:
         update.callback_query.answer.assert_awaited_once()
 
         # Verify repository was called for the correct month
-        repo.get_by_user_and_month.assert_called_once_with(12345, 2026, 3)
+        queries.get_month_expenses.assert_called_once_with(12345, 2026, 3)
 
         # Verify edit_message_text was called with expense data
         edit_call = update.callback_query.edit_message_text.call_args[1]
@@ -966,9 +960,13 @@ class TestListCallbackHandler:
 
     def test_year_callback_shows_year_total(self) -> None:
         """Tapping a year button shows year aggregate grouped by currency."""
-        repo = MagicMock()
-        # get_by_user_and_month returns expenses for each month
-        repo.get_by_user_and_month.return_value = [
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={2025: {12}},
+            active_year=2025,
+            active_month=12,
+        )
+        queries.get_year_expenses.return_value = [
             Expense(
                 id=5,
                 amount=Decimal("10.00"),
@@ -992,11 +990,9 @@ class TestListCallbackHandler:
                 created_at=datetime(2025, 12, 10, 10, 0, 0),
             ),
         ]
-        repo.get_months_with_expenses.return_value = {12}
-
         from expense_report.adapters.inbound.telegram_bot import _make_list_callback_handler
 
-        handler = _make_list_callback_handler(repo)
+        handler = _make_list_callback_handler(queries)
         update = _make_callback_update(callback_data="year:2025")
         context = MagicMock()
 
@@ -1018,16 +1014,17 @@ class TestListCallbackHandler:
 
     def test_month_callback_on_empty_month_shows_no_expenses_message(self) -> None:
         """Month with no expense rows shows informative text."""
-        repo = MagicMock()
-        repo.get_by_user_and_month.return_value = []
-        repo.get_months_with_expenses.side_effect = lambda uid, year: {
-            2026: {7},
-            2025: set(),
-        }.get(year, set())
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={2026: {7}},
+            active_year=2026,
+            active_month=7,
+        )
+        queries.get_month_expenses.return_value = []
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_callback_handler
 
-        handler = _make_list_callback_handler(repo)
+        handler = _make_list_callback_handler(queries)
         update = _make_callback_update(callback_data="month:2026:3")
         context = MagicMock()
 
@@ -1050,12 +1047,11 @@ class TestListCallbackHandler:
     )
     def test_malformed_callback_data_does_not_crash(self, bad_data: str) -> None:
         """Invalid callback_data is logged and ignored without exception."""
-        repo = MagicMock()
-        repo.get_months_with_expenses.return_value = set()
+        queries = _make_queries_mock()
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_callback_handler
 
-        handler = _make_list_callback_handler(repo)
+        handler = _make_list_callback_handler(queries)
         update = _make_callback_update(callback_data=bad_data)
         context = MagicMock()
 
@@ -1076,7 +1072,7 @@ class TestDeleteCallbackHandler:
         """Delete button callback edits the original message with strikethrough."""
         from expense_report.adapters.inbound.telegram_bot import _make_delete_callback_handler
 
-        mock_repo = MagicMock()
+        mock_queries = _make_queries_mock()
         deleted_expense = Expense(
             id=1,
             amount=Decimal("3.50"),
@@ -1088,9 +1084,9 @@ class TestDeleteCallbackHandler:
             receipt_photo_id=None,
             created_at=datetime(2026, 7, 12, 12, 0, 0),
         )
-        mock_repo.delete_by_id.return_value = deleted_expense
+        mock_queries.delete_expense.return_value = DeletionResult(deleted=deleted_expense)
 
-        handler = _make_delete_callback_handler(mock_repo)
+        handler = _make_delete_callback_handler(mock_queries)
         update = MagicMock()
         query = MagicMock()
         query.data = "delete:1"
@@ -1128,10 +1124,10 @@ class TestDeleteCallbackHandler:
         """When expense not found, answers callback and does NOT edit message."""
         from expense_report.adapters.inbound.telegram_bot import _make_delete_callback_handler
 
-        mock_repo = MagicMock()
-        mock_repo.delete_by_id.return_value = None
+        mock_queries = _make_queries_mock()
+        mock_queries.delete_expense.return_value = DeletionResult(deleted=None)
 
-        handler = _make_delete_callback_handler(mock_repo)
+        handler = _make_delete_callback_handler(mock_queries)
         update = MagicMock()
         query = MagicMock()
         query.data = "delete:99"
@@ -1160,7 +1156,7 @@ class TestDeleteHandler:
         """Successful /delete replies with deleted expense details."""
         from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
 
-        mock_repo = MagicMock()
+        mock_queries = _make_queries_mock()
         deleted_expense = Expense(
             id=42,
             amount=Decimal("42.50"),
@@ -1172,9 +1168,9 @@ class TestDeleteHandler:
             receipt_photo_id=None,
             created_at=datetime(2026, 7, 10, 12, 0, 0),
         )
-        mock_repo.delete_by_id.return_value = deleted_expense
+        mock_queries.delete_expense.return_value = DeletionResult(deleted=deleted_expense)
 
-        handler = _make_delete_handler(mock_repo)
+        handler = _make_delete_handler(mock_queries)
         update = _make_update(text="/delete 42")
         context = MagicMock()
 
@@ -1183,16 +1179,16 @@ class TestDeleteHandler:
         call_args = update.effective_message.reply_text.call_args
         reply = call_args[0][0]
         assert reply == "🗑️ Deleted expense #42: Supermarket — 42.50 EUR — 2026-07-10"
-        mock_repo.delete_by_id.assert_called_once_with(12345, 42)
+        mock_queries.delete_expense.assert_called_once_with(12345, 42)
 
     def test_delete_not_found_replies_with_not_found_message(self) -> None:
         """Non-existent expense /delete replies with not found."""
         from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
 
-        mock_repo = MagicMock()
-        mock_repo.delete_by_id.return_value = None
+        mock_queries = _make_queries_mock()
+        mock_queries.delete_expense.return_value = DeletionResult(deleted=None)
 
-        handler = _make_delete_handler(mock_repo)
+        handler = _make_delete_handler(mock_queries)
         update = _make_update(text="/delete 99")
         context = MagicMock()
 
@@ -1205,8 +1201,8 @@ class TestDeleteHandler:
         """Invalid /delete formats all return usage message."""
         from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
 
-        mock_repo = MagicMock()
-        handler = _make_delete_handler(mock_repo)
+        mock_queries = _make_queries_mock()
+        handler = _make_delete_handler(mock_queries)
 
         invalid_inputs = ["/delete", "/delete abc", "/delete 42 extra"]
         for cmd in invalid_inputs:
@@ -1220,8 +1216,8 @@ class TestDeleteHandler:
         """Non-positive ids like /delete 0 return usage."""
         from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
 
-        mock_repo = MagicMock()
-        handler = _make_delete_handler(mock_repo)
+        mock_queries = _make_queries_mock()
+        handler = _make_delete_handler(mock_queries)
 
         update = _make_update(text="/delete 0")
         context = MagicMock()
@@ -1233,8 +1229,8 @@ class TestDeleteHandler:
         """Handler returns silently when effective_message is None."""
         from expense_report.adapters.inbound.telegram_bot import _make_delete_handler
 
-        mock_repo = MagicMock()
-        handler = _make_delete_handler(mock_repo)
+        mock_queries = _make_queries_mock()
+        handler = _make_delete_handler(mock_queries)
         update = MagicMock()
         update.effective_message = None
         context = MagicMock()
