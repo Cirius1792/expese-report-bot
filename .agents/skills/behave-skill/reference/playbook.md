@@ -147,13 +147,13 @@ import parse
 
 
 def parse_boolean(text):
-    return text.strip().lower() in ('true', 'yes', '1')
+    return text.strip().lower() in ("true", "yes", "1")
 
 
 register_type(Boolean=parse_boolean)
 
 
-@given('the test database is ready')
+@given("the test database is ready")
 def step_setup_db(context):
     context.db_helper.reset_and_seed()
 
@@ -161,12 +161,12 @@ def step_setup_db(context):
 @given('I am on the "{page_name}" page')
 def step_navigate(context, page_name):
     pages = {
-        'login': '/login',
-        'register': '/register',
-        'dashboard': '/dashboard',
-        'products': '/products',
+        "login": "/login",
+        "register": "/register",
+        "dashboard": "/dashboard",
+        "products": "/products",
     }
-    url = pages.get(page_name, f'/{page_name}')
+    url = pages.get(page_name, f"/{page_name}")
     context.browser.get(f"{context.base_url}{url}")
 
 
@@ -190,54 +190,58 @@ import requests
 import json
 
 
-@given('I am authenticated as {role}')
+@given("I am authenticated as {role}")
 def step_auth(context, role):
     credentials = {
-        'admin': ('admin@test.com', 'AdminPass123'),
-        'user': ('user@test.com', 'UserPass123'),
+        "admin": ("admin@test.com", "AdminPass123"),
+        "user": ("user@test.com", "UserPass123"),
     }
     email, password = credentials[role]
-    response = requests.post(f"{context.api_url}/auth/login", json={
-        'email': email, 'password': password,
-    })
-    context.auth_token = response.json()['token']
+    response = requests.post(
+        f"{context.api_url}/auth/login",
+        json={
+            "email": email,
+            "password": password,
+        },
+    )
+    context.auth_token = response.json()["token"]
     context.auth_headers = {
-        'Authorization': f'Bearer {context.auth_token}',
-        'Content-Type': 'application/json',
+        "Authorization": f"Bearer {context.auth_token}",
+        "Content-Type": "application/json",
     }
 
 
 @given('a user exists with email "{email}"')
 def step_create_user(context, email):
-    response = requests.post(f"{context.api_url}/users",
-        json={'name': 'Temp User', 'email': email, 'role': 'viewer'},
-        headers=context.auth_headers)
-    context.created_user_id = response.json()['id']
+    response = requests.post(
+        f"{context.api_url}/users",
+        json={"name": "Temp User", "email": email, "role": "viewer"},
+        headers=context.auth_headers,
+    )
+    context.created_user_id = response.json()["id"]
     context.created_user_url = f"/api/users/{context.created_user_id}"
 
 
 @when('I send a {method} request to "{url}"')
 def step_send_request(context, method, url):
     full_url = f"{context.api_url}{url.replace('/api', '')}"
-    context.response = requests.request(
-        method, full_url, headers=context.auth_headers)
+    context.response = requests.request(method, full_url, headers=context.auth_headers)
 
 
 @when('I send a {method} request to "{url}" with')
 def step_send_request_with_table(context, method, url):
     data = dict(context.table.rows)
     full_url = f"{context.api_url}{url.replace('/api', '')}"
-    context.response = requests.request(
-        method, full_url, json=data, headers=context.auth_headers)
+    context.response = requests.request(method, full_url, json=data, headers=context.auth_headers)
 
 
-@when('I send a DELETE request to the user endpoint')
+@when("I send a DELETE request to the user endpoint")
 def step_delete_user(context):
     url = f"{context.api_url}/users/{context.created_user_id}"
     context.response = requests.delete(url, headers=context.auth_headers)
 
 
-@then('the response status should be {status:d}')
+@then("the response status should be {status:d}")
 def step_check_status(context, status):
     assert_that(context.response.status_code, equal_to(status))
 
@@ -254,10 +258,10 @@ def step_response_field_value(context, field, value):
     assert_that(str(body[field]), equal_to(value))
 
 
-@then('the response should contain at most {count:d} items')
+@then("the response should contain at most {count:d} items")
 def step_response_count(context, count):
     body = context.response.json()
-    data = body.get('data', body)
+    data = body.get("data", body)
     assert_that(data, has_length(less_than_or_equal_to(count)))
 ```
 
@@ -273,18 +277,19 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 
-logger = logging.getLogger('behave')
+logger = logging.getLogger("behave")
 
 
 def before_all(context):
     """Global setup — runs once before everything."""
-    context.base_url = os.environ.get('BASE_URL', 'http://localhost:3000')
-    context.api_url = os.environ.get('API_URL', 'http://localhost:3000/api')
-    context.screenshots_dir = 'reports/screenshots'
+    context.base_url = os.environ.get("BASE_URL", "http://localhost:3000")
+    context.api_url = os.environ.get("API_URL", "http://localhost:3000/api")
+    context.screenshots_dir = "reports/screenshots"
     os.makedirs(context.screenshots_dir, exist_ok=True)
 
     # Database helper
     from features.fixtures import DatabaseHelper
+
     context.db_helper = DatabaseHelper()
 
 
@@ -296,18 +301,16 @@ def before_feature(context, feature):
 def before_scenario(context, scenario):
     """Runs before each scenario."""
     # Start browser for UI tests
-    if 'ui' in scenario.effective_tags:
+    if "ui" in scenario.effective_tags:
         chrome_options = Options()
-        chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-        chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--window-size=1920,1080")
 
-        remote_url = os.environ.get('SELENIUM_URL')
+        remote_url = os.environ.get("SELENIUM_URL")
         if remote_url:
-            context.browser = webdriver.Remote(
-                command_executor=remote_url,
-                options=chrome_options)
+            context.browser = webdriver.Remote(command_executor=remote_url, options=chrome_options)
         else:
             context.browser = webdriver.Chrome(options=chrome_options)
 
@@ -320,14 +323,14 @@ def before_scenario(context, scenario):
 def after_scenario(context, scenario):
     """Runs after each scenario."""
     # Screenshot on failure
-    if scenario.status == 'failed' and hasattr(context, 'browser'):
-        safe_name = scenario.name.replace(' ', '_')[:50]
+    if scenario.status == "failed" and hasattr(context, "browser"):
+        safe_name = scenario.name.replace(" ", "_")[:50]
         filepath = f"{context.screenshots_dir}/{safe_name}.png"
         context.browser.save_screenshot(filepath)
         logger.error(f"Screenshot saved: {filepath}")
 
     # Close browser
-    if hasattr(context, 'browser'):
+    if hasattr(context, "browser"):
         context.browser.quit()
         del context.browser
 
@@ -358,7 +361,7 @@ class BasePage:
         self.base_url = base_url
         self.wait = WebDriverWait(browser, 15)
 
-    def navigate(self, path=''):
+    def navigate(self, path=""):
         self.browser.get(f"{self.base_url}{path}")
 
     def find(self, by, value):
@@ -377,11 +380,11 @@ class BasePage:
 
 
 class LoginPage(BasePage):
-    URL = '/login'
-    EMAIL_INPUT = (By.ID, 'email')
-    PASSWORD_INPUT = (By.ID, 'password')
-    SUBMIT_BTN = (By.ID, 'login-submit')
-    ERROR_MSG = (By.CSS_SELECTOR, '.error-message')
+    URL = "/login"
+    EMAIL_INPUT = (By.ID, "email")
+    PASSWORD_INPUT = (By.ID, "password")
+    SUBMIT_BTN = (By.ID, "login-submit")
+    ERROR_MSG = (By.CSS_SELECTOR, ".error-message")
 
     def open(self):
         self.navigate(self.URL)
@@ -409,8 +412,9 @@ from contextlib import contextmanager
 
 class DatabaseHelper:
     def __init__(self):
-        self.conn = psycopg2.connect(os.environ.get(
-            'DATABASE_URL', 'postgresql://test:test@localhost/testdb'))
+        self.conn = psycopg2.connect(
+            os.environ.get("DATABASE_URL", "postgresql://test:test@localhost/testdb")
+        )
         self.conn.autocommit = False
 
     def begin_transaction(self):
@@ -439,13 +443,13 @@ class DatabaseHelper:
 class TestDataLoader:
     @staticmethod
     def load_json(filename):
-        path = os.path.join('features', 'data', filename)
+        path = os.path.join("features", "data", filename)
         with open(path) as f:
             return json.load(f)
 
     @staticmethod
     def load_users():
-        return TestDataLoader.load_json('test_users.json')
+        return TestDataLoader.load_json("test_users.json")
 ```
 
 ---
@@ -457,24 +461,23 @@ class TestDataLoader:
 def _create_lambdatest_browser(context, scenario):
     """Create browser on LambdaTest cloud."""
     lt_options = {
-        'name': scenario.name,
-        'build': os.environ.get('BUILD_NAME', 'Behave-Build'),
-        'project': 'MyProject',
-        'platformName': 'Windows 11',
-        'w3c': True,
-        'video': True,
-        'network': True,
-        'console': True,
+        "name": scenario.name,
+        "build": os.environ.get("BUILD_NAME", "Behave-Build"),
+        "project": "MyProject",
+        "platformName": "Windows 11",
+        "w3c": True,
+        "video": True,
+        "network": True,
+        "console": True,
     }
     chrome_options = Options()
-    chrome_options.set_capability('LT:Options', lt_options)
+    chrome_options.set_capability("LT:Options", lt_options)
 
-    username = os.environ['LT_USERNAME']
-    access_key = os.environ['LT_ACCESS_KEY']
-    hub_url = f'https://{username}:{access_key}@hub.lambdatest.com/wd/hub'
+    username = os.environ["LT_USERNAME"]
+    access_key = os.environ["LT_ACCESS_KEY"]
+    hub_url = f"https://{username}:{access_key}@hub.lambdatest.com/wd/hub"
 
-    context.browser = webdriver.Remote(
-        command_executor=hub_url, options=chrome_options)
+    context.browser = webdriver.Remote(command_executor=hub_url, options=chrome_options)
 ```
 
 ---

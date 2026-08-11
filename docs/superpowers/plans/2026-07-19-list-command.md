@@ -33,29 +33,30 @@
 Add to `src/expense_report/ports/repository.py` after line 33 (`get_by_user_and_month` block ends):
 
 ```python
-    def get_months_with_expenses(self, user_id: int, year: int) -> set[int]:
-        """Return the set of month numbers (1-12) that have expenses for a user in a year.
+def get_months_with_expenses(self, user_id: int, year: int) -> set[int]:
+    """Return the set of month numbers (1-12) that have expenses for a user in a year.
 
-        Args:
-            user_id: The Telegram user id.
-            year: The year (e.g., 2026).
+    Args:
+        user_id: The Telegram user id.
+        year: The year (e.g., 2026).
 
-        Returns:
-            A set of month numbers with at least one expense (empty set if none).
-        """
-        ...
+    Returns:
+        A set of month numbers with at least one expense (empty set if none).
+    """
+    ...
 
-    def get_total_by_user_and_year(self, user_id: int, year: int) -> Decimal:
-        """Return the sum of all expense amounts for a user in a year.
 
-        Args:
-            user_id: The Telegram user id.
-            year: The year (e.g., 2026).
+def get_total_by_user_and_year(self, user_id: int, year: int) -> Decimal:
+    """Return the sum of all expense amounts for a user in a year.
 
-        Returns:
-            The total amount as Decimal (0.00 if no expenses).
-        """
-        ...
+    Args:
+        user_id: The Telegram user id.
+        year: The year (e.g., 2026).
+
+    Returns:
+        The total amount as Decimal (0.00 if no expenses).
+    """
+    ...
 ```
 
 - [ ] **Step 2: Verify the file is valid**
@@ -109,17 +110,19 @@ class TestGetMonthsWithExpenses:
             ("2026-07-20", "Shop B"),
             ("2026-03-05", "Shop C"),
         ]:
-            repo.save(Expense(
-                id=None,
-                amount=Decimal("10.00"),
-                currency="EUR",
-                merchant=merchant,
-                date=date.fromisoformat(expense_date),
-                category=None,
-                user_id=user_id,
-                receipt_photo_id=None,
-                created_at=datetime.fromisoformat(f"{expense_date}T12:00:00"),
-            ))
+            repo.save(
+                Expense(
+                    id=None,
+                    amount=Decimal("10.00"),
+                    currency="EUR",
+                    merchant=merchant,
+                    date=date.fromisoformat(expense_date),
+                    category=None,
+                    user_id=user_id,
+                    receipt_photo_id=None,
+                    created_at=datetime.fromisoformat(f"{expense_date}T12:00:00"),
+                )
+            )
 
         result = repo.get_months_with_expenses(user_id, 2026)
         assert result == {3, 7}
@@ -138,16 +141,32 @@ class TestGetMonthsWithExpenses:
 
         repo = SqliteExpenseRepository(":memory:")
 
-        repo.save(Expense(
-            id=None, amount=Decimal("10.00"), currency="EUR", merchant="A",
-            date=date(2026, 7, 1), category=None, user_id=123,
-            receipt_photo_id=None, created_at=datetime(2026, 7, 1, 12, 0, 0),
-        ))
-        repo.save(Expense(
-            id=None, amount=Decimal("20.00"), currency="EUR", merchant="B",
-            date=date(2026, 3, 1), category=None, user_id=456,
-            receipt_photo_id=None, created_at=datetime(2026, 3, 1, 12, 0, 0),
-        ))
+        repo.save(
+            Expense(
+                id=None,
+                amount=Decimal("10.00"),
+                currency="EUR",
+                merchant="A",
+                date=date(2026, 7, 1),
+                category=None,
+                user_id=123,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 1, 12, 0, 0),
+            )
+        )
+        repo.save(
+            Expense(
+                id=None,
+                amount=Decimal("20.00"),
+                currency="EUR",
+                merchant="B",
+                date=date(2026, 3, 1),
+                category=None,
+                user_id=456,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 3, 1, 12, 0, 0),
+            )
+        )
 
         assert repo.get_months_with_expenses(123, 2026) == {7}
         assert repo.get_months_with_expenses(456, 2026) == {3}
@@ -158,16 +177,32 @@ class TestGetMonthsWithExpenses:
 
         repo = SqliteExpenseRepository(":memory:")
 
-        repo.save(Expense(
-            id=None, amount=Decimal("10.00"), currency="EUR", merchant="A",
-            date=date(2026, 7, 1), category=None, user_id=123,
-            receipt_photo_id=None, created_at=datetime(2026, 7, 1, 12, 0, 0),
-        ))
-        repo.save(Expense(
-            id=None, amount=Decimal("20.00"), currency="EUR", merchant="B",
-            date=date(2025, 12, 1), category=None, user_id=123,
-            receipt_photo_id=None, created_at=datetime(2025, 12, 1, 12, 0, 0),
-        ))
+        repo.save(
+            Expense(
+                id=None,
+                amount=Decimal("10.00"),
+                currency="EUR",
+                merchant="A",
+                date=date(2026, 7, 1),
+                category=None,
+                user_id=123,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 1, 12, 0, 0),
+            )
+        )
+        repo.save(
+            Expense(
+                id=None,
+                amount=Decimal("20.00"),
+                currency="EUR",
+                merchant="B",
+                date=date(2025, 12, 1),
+                category=None,
+                user_id=123,
+                receipt_photo_id=None,
+                created_at=datetime(2025, 12, 1, 12, 0, 0),
+            )
+        )
 
         assert repo.get_months_with_expenses(123, 2025) == {12}
         assert repo.get_months_with_expenses(123, 2026) == {7}
@@ -188,17 +223,19 @@ class TestGetTotalByUserAndYear:
             ("2026-07-20", "12.50"),
             ("2026-03-05", "30.00"),
         ]:
-            repo.save(Expense(
-                id=None,
-                amount=Decimal(amount),
-                currency="EUR",
-                merchant="Shop",
-                date=date.fromisoformat(expense_date),
-                category=None,
-                user_id=user_id,
-                receipt_photo_id=None,
-                created_at=datetime.fromisoformat(f"{expense_date}T12:00:00"),
-            ))
+            repo.save(
+                Expense(
+                    id=None,
+                    amount=Decimal(amount),
+                    currency="EUR",
+                    merchant="Shop",
+                    date=date.fromisoformat(expense_date),
+                    category=None,
+                    user_id=user_id,
+                    receipt_photo_id=None,
+                    created_at=datetime.fromisoformat(f"{expense_date}T12:00:00"),
+                )
+            )
 
         result = repo.get_total_by_user_and_year(user_id, 2026)
         assert result == Decimal("85.00")
@@ -217,16 +254,32 @@ class TestGetTotalByUserAndYear:
 
         repo = SqliteExpenseRepository(":memory:")
 
-        repo.save(Expense(
-            id=None, amount=Decimal("50.00"), currency="EUR", merchant="A",
-            date=date(2026, 7, 1), category=None, user_id=123,
-            receipt_photo_id=None, created_at=datetime(2026, 7, 1, 12, 0, 0),
-        ))
-        repo.save(Expense(
-            id=None, amount=Decimal("30.00"), currency="EUR", merchant="B",
-            date=date(2026, 7, 2), category=None, user_id=456,
-            receipt_photo_id=None, created_at=datetime(2026, 7, 2, 12, 0, 0),
-        ))
+        repo.save(
+            Expense(
+                id=None,
+                amount=Decimal("50.00"),
+                currency="EUR",
+                merchant="A",
+                date=date(2026, 7, 1),
+                category=None,
+                user_id=123,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 1, 12, 0, 0),
+            )
+        )
+        repo.save(
+            Expense(
+                id=None,
+                amount=Decimal("30.00"),
+                currency="EUR",
+                merchant="B",
+                date=date(2026, 7, 2),
+                category=None,
+                user_id=456,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 2, 12, 0, 0),
+            )
+        )
 
         assert repo.get_total_by_user_and_year(123, 2026) == Decimal("50.00")
         assert repo.get_total_by_user_and_year(456, 2026) == Decimal("30.00")
@@ -237,16 +290,32 @@ class TestGetTotalByUserAndYear:
 
         repo = SqliteExpenseRepository(":memory:")
 
-        repo.save(Expense(
-            id=None, amount=Decimal("100.00"), currency="EUR", merchant="A",
-            date=date(2026, 7, 1), category=None, user_id=123,
-            receipt_photo_id=None, created_at=datetime(2026, 7, 1, 12, 0, 0),
-        ))
-        repo.save(Expense(
-            id=None, amount=Decimal("50.00"), currency="EUR", merchant="B",
-            date=date(2025, 12, 1), category=None, user_id=123,
-            receipt_photo_id=None, created_at=datetime(2025, 12, 1, 12, 0, 0),
-        ))
+        repo.save(
+            Expense(
+                id=None,
+                amount=Decimal("100.00"),
+                currency="EUR",
+                merchant="A",
+                date=date(2026, 7, 1),
+                category=None,
+                user_id=123,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 1, 12, 0, 0),
+            )
+        )
+        repo.save(
+            Expense(
+                id=None,
+                amount=Decimal("50.00"),
+                currency="EUR",
+                merchant="B",
+                date=date(2025, 12, 1),
+                category=None,
+                user_id=123,
+                receipt_photo_id=None,
+                created_at=datetime(2025, 12, 1, 12, 0, 0),
+            )
+        )
 
         assert repo.get_total_by_user_and_year(123, 2026) == Decimal("100.00")
 ```
@@ -353,9 +422,18 @@ Add after the WELCOME_MESSAGE constant (after line 24):
 
 ```python
 _MONTH_NAMES: dict[int, str] = {
-    1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr",
-    5: "May", 6: "Jun", 7: "Jul", 8: "Aug",
-    9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec",
+    1: "Jan",
+    2: "Feb",
+    3: "Mar",
+    4: "Apr",
+    5: "May",
+    6: "Jun",
+    7: "Jul",
+    8: "Aug",
+    9: "Sep",
+    10: "Oct",
+    11: "Nov",
+    12: "Dec",
 }
 
 
@@ -383,11 +461,7 @@ def _format_month_view(expenses: list[Expense], year: int, month: int) -> str:
 
 def _format_year_view(total: Decimal, year: int) -> str:
     """Format a year aggregate as a message text."""
-    return (
-        f"📊 {year} Summary\n\n"
-        f"Total: {total:.2f} EUR\n\n"
-        f"Tap a month below for details."
-    )
+    return f"📊 {year} Summary\n\nTotal: {total:.2f} EUR\n\nTap a month below for details."
 ```
 
 - [ ] **Step 3: Add keyboard builder helper**
@@ -415,10 +489,7 @@ def _build_list_keyboard(
     # Year row — descending order
     years = sorted(year_months.keys(), reverse=True)
     if years:
-        year_buttons = [
-            InlineKeyboardButton(str(y), callback_data=f"year:{y}")
-            for y in years
-        ]
+        year_buttons = [InlineKeyboardButton(str(y), callback_data=f"year:{y}") for y in years]
         keyboard.append(year_buttons)
 
     # Month row — chronological order, only months with expenses
@@ -523,14 +594,26 @@ class TestListHandler:
         repo.get_months_with_expenses.return_value = {7, 3}
         repo.get_by_user_and_month.return_value = [
             Expense(
-                id="e1", amount=Decimal("42.50"), currency="EUR", merchant="Supermarket",
-                date=date(2026, 7, 10), category="food", user_id=12345,
-                receipt_photo_id=None, created_at=datetime(2026, 7, 10, 10, 0, 0),
+                id="e1",
+                amount=Decimal("42.50"),
+                currency="EUR",
+                merchant="Supermarket",
+                date=date(2026, 7, 10),
+                category="food",
+                user_id=12345,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 10, 10, 0, 0),
             ),
             Expense(
-                id="e2", amount=Decimal("12.50"), currency="EUR", merchant="Coffee Shop",
-                date=date(2026, 7, 20), category="food", user_id=12345,
-                receipt_photo_id=None, created_at=datetime(2026, 7, 20, 11, 0, 0),
+                id="e2",
+                amount=Decimal("12.50"),
+                currency="EUR",
+                merchant="Coffee Shop",
+                date=date(2026, 7, 20),
+                category="food",
+                user_id=12345,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 20, 11, 0, 0),
             ),
         ]
 
@@ -565,13 +648,19 @@ class TestListHandler:
         repo = MagicMock()
         repo.get_months_with_expenses.side_effect = [
             {7, 3},  # 2026
-            set(),    # 2025 (none)
+            set(),  # 2025 (none)
         ]
         repo.get_by_user_and_month.return_value = [
             Expense(
-                id="e1", amount=Decimal("42.50"), currency="EUR", merchant="Shop",
-                date=date(2026, 7, 10), category=None, user_id=12345,
-                receipt_photo_id=None, created_at=datetime(2026, 7, 10, 10, 0, 0),
+                id="e1",
+                amount=Decimal("42.50"),
+                currency="EUR",
+                merchant="Shop",
+                date=date(2026, 7, 10),
+                category=None,
+                user_id=12345,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 10, 10, 0, 0),
             ),
         ]
 
@@ -603,14 +692,20 @@ class TestListHandler:
         """Both 2026 and 2025 buttons shown when both years have expenses."""
         repo = MagicMock()
         repo.get_months_with_expenses.side_effect = [
-            {7},     # 2026
-            {12, 1}, # 2025
+            {7},  # 2026
+            {12, 1},  # 2025
         ]
         repo.get_by_user_and_month.return_value = [
             Expense(
-                id="e1", amount=Decimal("10.00"), currency="EUR", merchant="Shop",
-                date=date(2026, 7, 1), category=None, user_id=12345,
-                receipt_photo_id=None, created_at=datetime(2026, 7, 1, 10, 0, 0),
+                id="e1",
+                amount=Decimal("10.00"),
+                currency="EUR",
+                merchant="Shop",
+                date=date(2026, 7, 1),
+                category=None,
+                user_id=12345,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 7, 1, 10, 0, 0),
             ),
         ]
 
@@ -763,8 +858,6 @@ git commit -m "feat: add /list command handler with inline keyboard"
 Append to `tests/adapters/inbound/test_telegram_bot.py`:
 
 ```python
-
-
 def _make_callback_update(
     user_id: int = 12345,
     callback_data: str = "",
@@ -792,14 +885,20 @@ class TestListCallbackHandler:
         repo = MagicMock()
         repo.get_by_user_and_month.return_value = [
             Expense(
-                id="e1", amount=Decimal("30.00"), currency="EUR", merchant="Book Store",
-                date=date(2026, 3, 5), category="shopping", user_id=12345,
-                receipt_photo_id=None, created_at=datetime(2026, 3, 5, 10, 0, 0),
+                id="e1",
+                amount=Decimal("30.00"),
+                currency="EUR",
+                merchant="Book Store",
+                date=date(2026, 3, 5),
+                category="shopping",
+                user_id=12345,
+                receipt_photo_id=None,
+                created_at=datetime(2026, 3, 5, 10, 0, 0),
             ),
         ]
         repo.get_months_with_expenses.side_effect = [
             {7, 3},  # 2026
-            set(),    # 2025
+            set(),  # 2025
         ]
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_callback_handler
@@ -836,7 +935,7 @@ class TestListCallbackHandler:
         repo.get_total_by_user_and_year.return_value = Decimal("15.00")
         repo.get_months_with_expenses.side_effect = [
             {7, 3},  # 2026
-            {12},    # 2025
+            {12},  # 2025
         ]
 
         from expense_report.adapters.inbound.telegram_bot import _make_list_callback_handler
@@ -1373,7 +1472,7 @@ def step_user_selects_year(context: Any, year: str) -> None:
 # ── Then steps ─────────────────────────────────────────────────────────────
 
 
-@then('the message shows expenses for {month_name} {year:d}')
+@then("the message shows expenses for {month_name} {year:d}")
 def step_message_shows_month(context: Any, month_name: str, year: int) -> None:
     text = context._list_message_text
     assert month_name in text, f"Expected '{month_name}' in message, got: {text[:200]}"
@@ -1415,9 +1514,7 @@ def step_no_button_labeled(context: Any, label: str) -> None:
 @then("the message explains that only months with expenses are shown")
 def step_explanation_message(context: Any) -> None:
     text = context._list_message_text
-    assert "only months" in text.lower(), (
-        f"Expected explanation about months, got: {text[:200]}"
-    )
+    assert "only months" in text.lower(), f"Expected explanation about months, got: {text[:200]}"
 
 
 @then("the bot replies with a message that no expenses are recorded")
@@ -1435,7 +1532,7 @@ def step_no_buttons(context: Any) -> None:
     )
 
 
-@then('the message shows expenses for user {user_id:d}')
+@then("the message shows expenses for user {user_id:d}")
 def step_message_user_expenses(context: Any, user_id: int) -> None:
     text = context._list_message_text
     # Verify the reply contains expense data (merchant should match user-specific data)
@@ -1444,7 +1541,7 @@ def step_message_user_expenses(context: Any, user_id: int) -> None:
     )
 
 
-@then('the message updates to show expenses for {month_name} {year:d}')
+@then("the message updates to show expenses for {month_name} {year:d}")
 def step_message_updates_month(context: Any, month_name: str, year: int) -> None:
     text = context._list_message_text
     assert month_name in text, f"Expected '{month_name}' in updated message, got: {text[:200]}"
@@ -1462,9 +1559,7 @@ def step_buttons_labeled_three(context: Any, l1: str, l2: str, l3: str) -> None:
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
-def _make_callback_ready_update(
-    context: Any, user_id: int | None = None
-) -> MagicMock:
+def _make_callback_ready_update(context: Any, user_id: int | None = None) -> MagicMock:
     """Create a mock Update that captures reply_text calls."""
     uid = user_id if user_id is not None else context.user_id
     update = MagicMock()

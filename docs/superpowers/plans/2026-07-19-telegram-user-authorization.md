@@ -852,7 +852,6 @@ git commit -m "feat: load telegram authorization config"
 Append these tests to `tests/adapters/inbound/test_authorization.py`:
 
 ```python
-
 def _make_update(user_id: int | None) -> MagicMock:
     update = MagicMock()
     if user_id is None:
@@ -932,34 +931,40 @@ Use this environment decorator:
 Add these helper functions after `build_repository`:
 
 ```python
-        def load_authorized_users() -> frozenset[int]:
-            call_order.append("load_authorized_users")
-            return frozenset({123456789})
+def load_authorized_users() -> frozenset[int]:
+    call_order.append("load_authorized_users")
+    return frozenset({123456789})
 
-        def build_audit(*args: object, **kwargs: object) -> MagicMock:
-            call_order.append("audit")
-            audit = MagicMock()
-            audit.verify_writable.side_effect = lambda: call_order.append("audit_verify")
-            return audit
 
-        def register_authorization_guard(*args: object, **kwargs: object) -> None:
-            call_order.append("register_authorization_guard")
+def build_audit(*args: object, **kwargs: object) -> MagicMock:
+    call_order.append("audit")
+    audit = MagicMock()
+    audit.verify_writable.side_effect = lambda: call_order.append("audit_verify")
+    return audit
+
+
+def register_authorization_guard(*args: object, **kwargs: object) -> None:
+    call_order.append("register_authorization_guard")
 ```
 
 Add these patches inside the `with` block:
 
 ```python
-            patch.object(
-                main_module,
-                "load_authorized_user_ids_from_env",
-                side_effect=load_authorized_users,
-            ),
-            patch.object(main_module, "UnauthorizedAttemptAudit", side_effect=build_audit),
-            patch.object(
-                main_module,
-                "register_authorization_guard",
-                side_effect=register_authorization_guard,
-            ),
+(
+    patch.object(
+        main_module,
+        "load_authorized_user_ids_from_env",
+        side_effect=load_authorized_users,
+    ),
+)
+(patch.object(main_module, "UnauthorizedAttemptAudit", side_effect=build_audit),)
+(
+    patch.object(
+        main_module,
+        "register_authorization_guard",
+        side_effect=register_authorization_guard,
+    ),
+)
 ```
 
 Change the final assertion to:
