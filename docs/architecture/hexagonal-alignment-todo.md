@@ -161,7 +161,7 @@ After completing an item:
 | Field | Value |
 |-------|-------|
 | **Priority** | P1 or P2 |
-| **Status** | `Not started` |
+| **Status** | `Resolved` |
 | **Files/Symbols** | `src/expense_report/adapters/inbound/main.py`: `main()` — instantiates `DspyExtractionAdapter()`, `SqliteExpenseRepository(db_path)`, `CorrectionStore()`, `UnauthorizedAttemptAudit(path)`, `Application.builder().token(token).build()`. `src/expense_report/adapters/inbound/cli_extraction.py`: `main()` — instantiates `DspyExtractionAdapter()`, `SqliteExpenseRepository(args.db)` |
 | **Problem** | `main.py` is a legitimate Telegram composition root, but configuration knowledge is distributed. It reads Telegram and database values; authorization reads its own environment value; `DspyExtractionAdapter` reads LLM values during construction and reads them again in the image call; the CLI separately constructs concrete driven Adapters. Required values and failure modes are therefore not visible in one place per process. |
 | **Deletion test** | Delete `main.py` and environment access still remains in authorization and extraction Modules; delete the CLI construction and the Telegram composition remains. The current composition root does not concentrate configuration knowledge. |
