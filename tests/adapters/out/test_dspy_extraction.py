@@ -937,3 +937,163 @@ class TestRefine:
         assert mock_predictor.call_count == 3
         assert mock_sleep.call_args_list[0][0][0] == 1
         assert mock_sleep.call_args_list[1][0][0] == 2
+
+
+class TestExplicitConstructor:
+    """DspyExtractionAdapter accepts explicit LLM params (ARCH-004)."""
+
+    @patch("dspy.LM")
+    @patch("dspy.configure")
+    @patch("dspy.ChainOfThought")
+    @patch("dspy.Predict")
+    def test_explicit_params_do_not_read_environ(
+        self,
+        mock_predict_cls: MagicMock,
+        mock_chain: MagicMock,
+        mock_configure: MagicMock,
+        mock_lm_cls: MagicMock,
+    ) -> None:
+        """When all three params are provided, os.environ is NOT consulted."""
+        mock_lm_cls.return_value = MagicMock()
+        mock_chain.return_value = MagicMock()
+        mock_predict_cls.return_value = MagicMock()
+
+        from expense_report.adapters.out.dspy_extraction import (
+            DspyExtractionAdapter,
+        )
+
+        # Clear env and provide explicit params — should still work
+        with patch.dict(os.environ, {}, clear=True):
+            adapter = DspyExtractionAdapter(
+                base_url="http://explicit:9090",
+                api_key="explicit-key-abc",
+                model="explicit-model/v2",
+            )
+
+        mock_lm_cls.assert_called_once_with(
+            model="explicit-model/v2",
+            api_key="explicit-key-abc",
+            api_base="http://explicit:9090",
+            max_tokens=500,
+            temperature=0.0,
+        )
+
+    @patch("dspy.LM")
+    @patch("dspy.configure")
+    @patch("dspy.ChainOfThought")
+    @patch("dspy.Predict")
+    @patch("expense_report.adapters.out.dspy_extraction.OpenAI")
+    def test_image_retry_uses_stored_config_not_environ(
+        self,
+        mock_openai_cls: MagicMock,
+        mock_predict_cls: MagicMock,
+        mock_chain: MagicMock,
+        mock_configure: MagicMock,
+        mock_lm_cls: MagicMock,
+    ) -> None:
+        """_call_image_with_retry uses cached values, not os.environ."""
+        mock_lm_cls.return_value = MagicMock()
+        mock_chain.return_value = MagicMock()
+        mock_predict_cls.return_value = MagicMock()
+
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+
+        from expense_report.adapters.out.dspy_extraction import (
+            DspyExtractionAdapter,
+        )
+
+        # Build with explicit params, then clear env to prove no re-read
+        with patch.dict(os.environ, {}, clear=True):
+            adapter = DspyExtractionAdapter(
+                base_url="http://explicit:9090",
+                api_key="explicit-key-abc",
+                model="openai/explicit-model/v2",
+            )
+
+        # Trigger image extraction (will call _call_image_with_retry internally)
+        fake_b64 = "Qk1mAAAAAAAAADYAAAAoAAAAAQAAAAEAAAABACAAAAAAAAYAAAASCwAAEgsAAAAAAAAAAAAA"
+
+        # Should NOT raise KeyError even though os.environ is empty
+        try:
+            adapter._call_image_with_retry(fake_b64)
+        except Exception:
+            # Expected: the mock client's chat.completions.create may not be set up fully,
+            # but we only care that OpenAI() was called with the correct args
+            pass
+
+        # Verify OpenAI client was constructed with cached values, NOT os.environ
+        mock_openai_cls.assert_called_once_with(
+            base_url="http://explicit:9090",
+            api_key="explicit-key-abc",
+        )
+
+    @patch("dspy.LM")
+    @patch("dspy.configure")
+    @patch("dspy.ChainOfThought")
+    @patch("dspy.Predict")
+    def test_backward_compat_no_args_reads_environ(
+        self,
+        mock_predict_cls: MagicMock,
+        mock_chain: MagicMock,
+        mock_configure: MagicMock,
+        mock_lm_cls: MagicMock,
+    ) -> None:
+        """Constructor with no args still reads os.environ (backward compat)."""
+        mock_lm_cls.return_value = MagicMock()
+        mock_chain.return_value = MagicMock()
+        mock_predict_cls.return_value = MagicMock()
+
+        from expense_report.adapters.out.dspy_extraction import (
+            DspyExtractionAdapter,
+        )
+
+        with patch.dict(
+            os.environ,
+            {
+                "LLM_BASE_URL": "http://env:8080",
+                "LLM_API_KEY": "env-key",
+                "LLM_MODEL": "env-model/v3",
+            },
+            clear=True,
+        ):
+            adapter = DspyExtractionAdapter()
+
+        mock_lm_cls.assert_called_once_with(
+            model="env-model/v3",
+            api_key="env-key",
+            api_base="http://env:8080",
+            max_tokens=500,
+            temperature=0.0,
+        )
+
+    @patch("dspy.LM")
+    @patch("dspy.configure")
+    @patch("dspy.ChainOfThought")
+    @patch("dspy.Predict")
+    def test_stored_attrs_match_explicit_or_env(
+        self,
+        mock_predict_cls: MagicMock,
+        mock_chain: MagicMock,
+        mock_configure: MagicMock,
+        mock_lm_cls: MagicMock,
+    ) -> None:
+        """verify stored attributes on the adapter reflect what was passed."""
+        mock_lm_cls.return_value = MagicMock()
+        mock_chain.return_value = MagicMock()
+        mock_predict_cls.return_value = MagicMock()
+
+        from expense_report.adapters.out.dspy_extraction import (
+            DspyExtractionAdapter,
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            adapter = DspyExtractionAdapter(
+                base_url="http://a:1",
+                api_key="k",
+                model="m",
+            )
+
+        assert adapter._base_url == "http://a:1"
+        assert adapter._api_key == "k"
+        assert adapter._model == "m"
