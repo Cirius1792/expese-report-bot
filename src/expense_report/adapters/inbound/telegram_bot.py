@@ -49,6 +49,10 @@ Commands:
 /report - Get your monthly expense report as CSV
 /list - Browse your expenses by month"""
 
+# Generic user-facing message for unhandled errors (issue #3). Deliberately
+# vague: exception details are logged, never sent to the user.
+GENERIC_ERROR_MESSAGE = "⚠️ Il servizio non e' al momento disponibile. Riprova piu' tardi."
+
 _MONTH_NAMES: dict[int, str] = {
     1: "Jan",
     2: "Feb",
@@ -381,6 +385,58 @@ def register_handlers(
             _make_text_handler(expense_recording),
         )
     )
+
+
+async def handle_unexpected_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Global PTB error handler for unhandled exceptions in any bot handler.
+
+    Registered via :func:`register_global_error_handler`. When a handler
+    raises, PTB passes (update, context) where ``context.error`` holds the
+    exception and ``update`` may be None (e.g. for job callbacks).
+
+    Note: once an error handler is registered, python-telegram-bot no longer
+    logs the exception itself (verified against v22.8 ``process_error``), so
+    this handler is solely responsible for the ERROR log with traceback.
+
+    The user receives only :data:`GENERIC_ERROR_MESSAGE` — exception details
+    never reach the user.
+    """
+    error = context.error
+    logger.error("Unhandled error while processing update: %s", error, exc_info=error)
+
+    if update is None:
+        logger.warning("Error handler cannot notify user: no Update available")
+        return
+
+    # Stop the pending client spinner on callback updates. The original
+    # handler may have answered already — a failed answer must not prevent
+    # the user notification below.
+    callback_query = getattr(update, "callback_query", None)
+    if callback_query is not None:
+        try:
+            await callback_query.answer()
+        except Exception:
+            logger.debug("Could not answer callback query in error handler", exc_info=True)
+
+    message = getattr(update, "effective_message", None)
+    if message is None:
+        logger.warning("Error handler cannot notify user: no effective message in Update")
+        return
+
+    try:
+        await message.reply_text(GENERIC_ERROR_MESSAGE)
+    except Exception:
+        logger.error("Failed to deliver generic error message to user", exc_info=True)
+
+
+def register_global_error_handler(app: Application) -> None:
+    """Register the global error handler on the Application.
+
+    Every unhandled exception raised by any handler (commands, photo, text,
+    callbacks, authorization guard, future handlers) is then logged with its
+    full traceback and acknowledged to the user with a generic message.
+    """
+    app.add_error_handler(handle_unexpected_error)
 
 
 async def _handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

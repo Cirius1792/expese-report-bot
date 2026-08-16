@@ -14,6 +14,7 @@ Follows sociable unit test principles:
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import date, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -441,6 +442,19 @@ class TestRegisterHandlers:
         #           CommandHandler(delete), CallbackQueryHandler(list),
         #           CallbackQueryHandler(delete), MessageHandler(photo),
         #           MessageHandler(text)
+
+    def test_registers_global_error_handler(self) -> None:
+        """register_global_error_handler wires the global error handler once."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            handle_unexpected_error,
+            register_global_error_handler,
+        )
+
+        app = MagicMock()
+
+        register_global_error_handler(app)
+
+        app.add_error_handler.assert_called_once_with(handle_unexpected_error)
 
 
 class TestMissingFields:
@@ -1237,6 +1251,187 @@ class TestDeleteHandler:
 
         asyncio.run(handler(update, context))
         # Should not raise — just return silently
+
+
+class TestGlobalErrorHandler:
+    """Tests for the global PTB error handler (issue #3).
+
+    PTB 22.8 semantics (verified against installed source): when an error
+    handler is registered, PTB does NOT log the exception itself and passes
+    the callback (update, context) where update may be None and context.error
+    holds the exception. The handler is therefore solely responsible for
+    logging with traceback and for notifying the user generically.
+    """
+
+    @staticmethod
+    def _raised_error(message: str = "db connection lost: /var/secrets/db") -> Exception:
+        """Raise and catch a real exception so it carries a traceback."""
+        try:
+            raise ValueError(message)
+        except ValueError as exc:
+            return exc
+
+    def _make_error_context(self, error: Exception) -> MagicMock:
+        """Create a mock CallbackContext carrying the given error."""
+        context = MagicMock()
+        context.error = error
+        return context
+
+    def test_error_handler_replies_with_generic_message(self) -> None:
+        """Uncaught handler error produces exactly the generic error message."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            GENERIC_ERROR_MESSAGE,
+            handle_unexpected_error,
+        )
+
+        update = _make_update()
+        update.callback_query = None
+        context = self._make_error_context(self._raised_error())
+
+        asyncio.run(handle_unexpected_error(update, context))
+
+        update.effective_message.reply_text.assert_awaited_once_with(GENERIC_ERROR_MESSAGE)
+
+    def test_error_handler_logs_error_with_traceback(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The unhandled error is logged at ERROR carrying the exception and traceback."""
+        from expense_report.adapters.inbound.telegram_bot import handle_unexpected_error
+
+        caplog.set_level(logging.ERROR)
+        update = _make_update()
+        update.callback_query = None
+        error = self._raised_error()
+        context = self._make_error_context(error)
+
+        asyncio.run(handle_unexpected_error(update, context))
+
+        error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+        traced = [
+            r
+            for r in error_records
+            if isinstance(r.exc_info, tuple)
+            and r.exc_info[1] is error
+            and r.exc_info[2] is not None
+        ]
+        assert len(traced) == 1, (
+            "expected exactly one ERROR record carrying the exception and its traceback"
+        )
+
+    def test_error_handler_does_not_leak_exception_details(self) -> None:
+        """The user-facing message never contains exception class or message."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            GENERIC_ERROR_MESSAGE,
+            handle_unexpected_error,
+        )
+
+        secret_error = RuntimeError("LLM auth failed with key sk-live-12345")
+        update = _make_update()
+        update.callback_query = None
+        context = self._make_error_context(secret_error)
+
+        asyncio.run(handle_unexpected_error(update, context))
+
+        reply = update.effective_message.reply_text.call_args.args[0]
+        assert reply == GENERIC_ERROR_MESSAGE
+        assert "sk-live-12345" not in reply
+        assert "RuntimeError" not in reply
+
+    def test_error_handler_callback_update_answers_and_notifies(self) -> None:
+        """Callback query error: pending callback answered, generic message sent."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            GENERIC_ERROR_MESSAGE,
+            handle_unexpected_error,
+        )
+
+        message = MagicMock()
+        message.reply_text = AsyncMock()
+        callback_query = MagicMock()
+        callback_query.message = message
+        callback_query.answer = AsyncMock()
+        update = MagicMock()
+        update.callback_query = callback_query
+        # Real PTB semantics: effective_message is the callback's message
+        update.effective_message = message
+
+        context = self._make_error_context(self._raised_error())
+
+        asyncio.run(handle_unexpected_error(update, context))
+
+        callback_query.answer.assert_awaited_once()
+        message.reply_text.assert_awaited_once_with(GENERIC_ERROR_MESSAGE)
+
+    def test_error_handler_none_update_logs_and_returns(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """PTB may pass update=None (e.g. job callbacks); handler must not raise."""
+        from expense_report.adapters.inbound.telegram_bot import handle_unexpected_error
+
+        caplog.set_level(logging.DEBUG)
+        context = self._make_error_context(self._raised_error())
+
+        asyncio.run(handle_unexpected_error(None, context))  # must not raise
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) >= 1
+
+    def test_error_handler_no_effective_message_warns_and_returns(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Update without effective message: warning logged, no reply attempted."""
+        from expense_report.adapters.inbound.telegram_bot import handle_unexpected_error
+
+        caplog.set_level(logging.DEBUG)
+        update = MagicMock()
+        update.callback_query = None
+        update.effective_message = None
+        context = self._make_error_context(self._raised_error())
+
+        asyncio.run(handle_unexpected_error(update, context))  # must not raise
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) >= 1
+
+    def test_error_handler_survives_failed_reply(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A failed notification reply is logged at ERROR, not propagated to PTB."""
+        from expense_report.adapters.inbound.telegram_bot import handle_unexpected_error
+
+        caplog.set_level(logging.ERROR)
+        update = _make_update()
+        update.callback_query = None
+        update.effective_message.reply_text = AsyncMock(side_effect=RuntimeError("api down"))
+        context = self._make_error_context(self._raised_error())
+
+        asyncio.run(handle_unexpected_error(update, context))  # must not raise
+
+        delivery_errors = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.ERROR and "Failed to deliver" in r.getMessage()
+        ]
+        assert len(delivery_errors) >= 1
+
+    def test_error_handler_tolerates_failed_callback_answer(self) -> None:
+        """If answering the callback fails (already answered), message is still sent."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            GENERIC_ERROR_MESSAGE,
+            handle_unexpected_error,
+        )
+
+        message = MagicMock()
+        message.reply_text = AsyncMock()
+        callback_query = MagicMock()
+        callback_query.message = message
+        callback_query.answer = AsyncMock(side_effect=RuntimeError("already answered"))
+        update = MagicMock()
+        update.callback_query = callback_query
+        update.effective_message = message
+
+        context = self._make_error_context(self._raised_error())
+
+        asyncio.run(handle_unexpected_error(update, context))  # must not raise
+
+        message.reply_text.assert_awaited_once_with(GENERIC_ERROR_MESSAGE)
 
 
 class TestMainFunction:

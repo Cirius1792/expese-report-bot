@@ -19,7 +19,10 @@ from expense_report.adapters.inbound.authorization import (
     register_authorization_guard,
     resolve_unauthorized_log_path,
 )
-from expense_report.adapters.inbound.telegram_bot import register_handlers
+from expense_report.adapters.inbound.telegram_bot import (
+    register_global_error_handler,
+    register_handlers,
+)
 from expense_report.adapters.out.dspy_extraction import DspyExtractionAdapter
 from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 from expense_report.application.correction_state import CorrectionStore
@@ -95,5 +98,6 @@ def main() -> None:
     app = Application.builder().token(token).build()
     register_authorization_guard(app, authorized_user_ids, unauthorized_audit)
     register_handlers(app, expense_recording, expense_queries)
+    register_global_error_handler(app)
     logger.info("Bot started, entering polling loop")
     app.run_polling()
