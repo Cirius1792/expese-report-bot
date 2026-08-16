@@ -148,6 +148,9 @@ class TestMainStartsLogging:
         def register_handlers(*args: object, **kwargs: object) -> None:
             call_order.append("register_handlers")
 
+        def register_global_error_handler(*args: object, **kwargs: object) -> None:
+            call_order.append("register_global_error_handler")
+
         with (
             patch.object(main_module, "_configure_logging", side_effect=configure_logging),
             patch.object(
@@ -178,6 +181,11 @@ class TestMainStartsLogging:
                 side_effect=build_application,
             ),
             patch.object(main_module, "register_handlers", side_effect=register_handlers),
+            patch.object(
+                main_module,
+                "register_global_error_handler",
+                side_effect=register_global_error_handler,
+            ),
         ):
             main_module.main()
 
@@ -192,5 +200,6 @@ class TestMainStartsLogging:
             "application_builder",
             "register_authorization_guard",
             "register_handlers",
+            "register_global_error_handler",
             "run_polling",
         ]
