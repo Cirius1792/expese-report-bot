@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from expense_report.domain.models import Expense, ExtractionResult
+from expense_report.domain.source_types import SourceType
 from expense_report.ports.expense_queries import ExpenseQueryPort
 
 
@@ -474,7 +475,10 @@ class TestCorrectionLogging:
         )
         extraction.refine.return_value = refined
 
-        use_case = ExpenseRecordingUseCase(extraction, repository, store)
+        from expense_report.ports.source_preparation import SourcePreparationPort
+
+        preparation = MagicMock(spec=SourcePreparationPort)
+        use_case = ExpenseRecordingUseCase(preparation, extraction, repository, store)
 
         caplog.set_level(logging.DEBUG)
         correction_text = "Cafe EUR 15"
@@ -483,7 +487,7 @@ class TestCorrectionLogging:
             RecordExpense(
                 user_id=12345,
                 source=correction_text,
-                source_type="text",
+                source_type=SourceType.TEXT,
                 mode=RecordingMode.CONVERSATIONAL,
             )
         )

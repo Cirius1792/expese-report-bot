@@ -1,7 +1,7 @@
 """dSPy-based implementation of the ExtractionPort.
 
 Uses an OpenAI-compatible LLM via dSPy for structured expense extraction
-from receipt photos and free-text messages.
+from normalized SourceViews (free text or receipt page images).
 """
 
 from __future__ import annotations
@@ -14,13 +14,18 @@ import re
 import time
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from typing import Any, Literal
+from typing import Any, cast
 
 import dspy
 from openai import OpenAI
 from PIL import Image
 
 from expense_report.domain.models import ExtractionResult
+from expense_report.ports.source_preparation import (
+    FreeTextSourceView,
+    ReceiptPagesSourceView,
+    SourceView,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -125,47 +130,80 @@ class DspyExtractionAdapter:
             category=prediction.category if prediction.category else None,
         )
 
-    def extract(
-        self,
-        source: str | bytes,
-        source_type: Literal["image", "text"],
-    ) -> ExtractionResult:
-        """Extract structured expense data from the given source."""
-        if source_type == "image":
-            assert isinstance(source, bytes), "Image source must be bytes"
-            logger.info("Extracting from image source")
-            image_b64 = self._image_to_base64(source)
-            fields = self._call_image_with_retry(image_b64)
-            result = ExtractionResult(
-                amount=self._parse_amount(fields["amount"]),
-                currency=self._parse_currency(fields["currency"]),
-                merchant=fields["merchant"] if fields["merchant"] else None,
-                date=self._parse_date(fields["date"]),
-                category=fields["category"] if fields["category"] else None,
-            )
-            logger.info(
-                "Image extraction complete: %s%s",
-                result.amount or "?",
-                result.currency or "",
-            )
-            return result
-        else:
-            assert isinstance(source, str), "Text source must be a string"
-            logger.info("Extracting from text source")
-            prediction = self._call_text_with_retry(source)
-            result = ExtractionResult(
-                amount=self._parse_amount(prediction.amount),
-                currency=self._parse_currency(prediction.currency),
-                merchant=prediction.merchant if prediction.merchant else None,
-                date=self._parse_date(prediction.date),
-                category=prediction.category if prediction.category else None,
-            )
-            logger.info(
-                "Text extraction complete: %s%s",
-                result.amount or "?",
-                result.currency or "",
-            )
-            return result
+    def extract(self, source: SourceView) -> ExtractionResult:
+        """Extract structured expense data from a normalized source view."""
+        if isinstance(source, FreeTextSourceView):
+            return self._extract_text(source.text)
+        if isinstance(source, ReceiptPagesSourceView):
+            return self._extract_receipt_pages(source.page_images)
+        raise AssertionError(f"Unknown source view: {type(source).__name__}")
+
+    def _extract_text(self, source: str) -> ExtractionResult:
+        """Extract structured expense data from free text via dSPy ChainOfThought."""
+        logger.info("Extracting from text source")
+        prediction = self._call_text_with_retry(source)
+        result = ExtractionResult(
+            amount=self._parse_amount(prediction.amount),
+            currency=self._parse_currency(prediction.currency),
+            merchant=prediction.merchant if prediction.merchant else None,
+            date=self._parse_date(prediction.date),
+            category=prediction.category if prediction.category else None,
+        )
+        logger.info(
+            "Text extraction complete: %s%s",
+            result.amount or "?",
+            result.currency or "",
+        )
+        return result
+
+    def _extract_receipt_pages(self, page_images: tuple[bytes, ...]) -> ExtractionResult:
+        """Extract structured expense data from receipt page images.
+
+        All page images belong to ONE receipt, so they are sent in a single
+        vision request whose prompt states that and requires one JSON object.
+        Per-page resize to 1536px and base64 encoding happen here (a
+        model-facing concern, not source normalization).
+        """
+        logger.info("Extracting from receipt pages (%s page(s))", len(page_images))
+        image_parts = [
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{self._image_to_base64(page_bytes)}"},
+            }
+            for page_bytes in page_images
+        ]
+        content_parts: list[dict[str, Any]] = [
+            {
+                "type": "text",
+                "text": (
+                    "Extract structured expense data from this receipt. "
+                    "The image(s) below are the pages of ONE receipt — treat all "
+                    "pages together as a single document. Return exactly one JSON "
+                    "object with these fields:\n"
+                    "- amount: decimal number (e.g., 42.50)\n"
+                    "- currency: 3-letter ISO 4217 code (e.g., EUR, USD)\n"
+                    "- merchant: vendor name\n"
+                    "- date: YYYY-MM-DD format. Read every digit carefully.\n"
+                    "European receipts often use DD/MM/YYYY — convert to YYYY-MM-DD.\n"
+                    "- category: expense category (e.g., food, transport, hotel)"
+                ),
+            },
+            *image_parts,
+        ]
+        fields = self._call_vision_with_retry(content_parts)
+        result = ExtractionResult(
+            amount=self._parse_amount(fields["amount"]),
+            currency=self._parse_currency(fields["currency"]),
+            merchant=fields["merchant"] if fields["merchant"] else None,
+            date=self._parse_date(fields["date"]),
+            category=fields["category"] if fields["category"] else None,
+        )
+        logger.info(
+            "Image extraction complete: %s%s",
+            result.amount or "?",
+            result.currency or "",
+        )
+        return result
 
     def _image_to_base64(self, image_bytes: bytes) -> str:
         """Convert image bytes to a resized base64 string for vision LLMs.
@@ -202,11 +240,13 @@ class DspyExtractionAdapter:
         )
         raise last_exception  # type: ignore[misc]
 
-    def _call_image_with_retry(self, image_b64: str) -> dict[str, str]:
-        """Call the vision model directly via OpenAI-compatible API for image extraction.
+    def _call_vision_with_retry(self, content_parts: list[dict[str, Any]]) -> dict[str, str]:
+        """Call the vision model directly via OpenAI-compatible API.
 
-        Uses direct API call instead of dSPy because dSPy's ChainOfThought prompt
-        overhead exceeds the model's context window for vision tasks.
+        One request carries the full content parts list: a text prompt plus
+        1..N image parts (one per receipt page). Uses direct API call instead
+        of dSPy because dSPy's ChainOfThought prompt overhead exceeds the
+        model's context window for vision tasks.
         """
         client = OpenAI(
             base_url=self._base_url,
@@ -217,35 +257,10 @@ class DspyExtractionAdapter:
 
         for attempt in range(3):
             try:
-                logger.debug("Image extraction attempt %s/3", attempt + 1)
+                logger.debug("Vision extraction attempt %s/3", attempt + 1)
                 response = client.chat.completions.create(
                     model=self._model.removeprefix("openai/"),
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": (
-                                        "Extract structured expense data from this receipt image. "
-                                        "Return a JSON object with these fields:\n"
-                                        "- amount: decimal number (e.g., 42.50)\n"
-                                        "- currency: 3-letter ISO 4217 code (e.g., EUR, USD)\n"
-                                        "- merchant: vendor name\n"
-                                        "- date: YYYY-MM-DD format. Read every digit carefully.\n"
-                                        "European receipts often use DD/MM/YYYY"
-                                        " — convert to YYYY-MM-DD.\n"
-                                        "- category: expense category"
-                                        " (e.g., food, transport, hotel)"
-                                    ),
-                                },
-                                {
-                                    "type": "image_url",
-                                    "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
-                                },
-                            ],
-                        }
-                    ],
+                    messages=[{"role": "user", "content": cast(Any, content_parts)}],
                     max_tokens=300,
                     temperature=0.0,
                 )
@@ -255,14 +270,14 @@ class DspyExtractionAdapter:
             except Exception as e:
                 last_exception = e
                 logger.warning(
-                    "Image extraction failed (attempt %s/3): %s",
+                    "Vision extraction failed (attempt %s/3): %s",
                     attempt + 1,
                     type(e).__name__,
                 )
                 if attempt < 2:
                     time.sleep(delays[attempt])
         logger.error(
-            "Image extraction failed after 3 attempts: %s",
+            "Vision extraction failed after 3 attempts: %s",
             type(last_exception).__name__,
         )
         raise last_exception  # type: ignore[misc]

@@ -8,6 +8,7 @@ from datetime import datetime
 from expense_report.application.correction_state import CorrectionStore
 from expense_report.domain.correction_state import PendingCorrection
 from expense_report.domain.models import Expense, ExtractionResult
+from expense_report.domain.source_types import SourceType
 from expense_report.ports.expense_recording import (
     CorrectionLimitReached,
     CorrectionOpened,
@@ -18,9 +19,14 @@ from expense_report.ports.expense_recording import (
     RecordExpense,
     RecordingMode,
     RecordingOutcome,
+    SourceRejected,
 )
 from expense_report.ports.extraction import ExtractionPort
 from expense_report.ports.repository import ExpenseRepositoryPort
+from expense_report.ports.source_preparation import (
+    SourcePreparationError,
+    SourcePreparationPort,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,17 +65,19 @@ class ExpenseRecordingUseCase:
 
     def __init__(
         self,
+        preparation: SourcePreparationPort,
         extraction: ExtractionPort,
         repository: ExpenseRepositoryPort,
         correction_store: CorrectionStore,
     ) -> None:
+        self._preparation = preparation
         self._extraction = extraction
         self._repository = repository
         self._store = correction_store
 
     def record(self, command: RecordExpense) -> RecordingOutcome:
         # ── Correction routing: only for CONVERSATIONAL text ──
-        if command.mode == RecordingMode.CONVERSATIONAL and command.source_type == "text":
+        if command.mode == RecordingMode.CONVERSATIONAL and command.source_type == SourceType.TEXT:
             pending = self._store.get(command.user_id)
             if pending is not None:
                 if pending.maxed_out:
@@ -117,8 +125,18 @@ class ExpenseRecordingUseCase:
                     attempt_count=updated.attempt_count,
                 )
 
-        # ── Fresh recording (ONE_SHOT, CONVERSATIONAL without pending, any image) ──
-        result = self._extraction.extract(command.source, command.source_type)
+        # ── Fresh recording (ONE_SHOT, CONVERSATIONAL without pending, any source) ──
+        try:
+            view = self._preparation.prepare(command.source, command.source_type)
+        except SourcePreparationError as exc:
+            logger.info(
+                "Source rejected for user %s: %s",
+                command.user_id,
+                exc.message,
+            )
+            return SourceRejected(reason=str(exc.message))
+
+        result = self._extraction.extract(view)
 
         if result.is_complete:
             expense = _build_expense(result, command.user_id, command.receipt_photo_id)

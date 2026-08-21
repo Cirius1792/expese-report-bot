@@ -129,6 +129,10 @@ class TestMainStartsLogging:
             call_order.append("extraction_adapter")
             return MagicMock()
 
+        def build_preparation() -> MagicMock:
+            call_order.append("preparation_adapter")
+            return MagicMock()
+
         def build_repository(*args: object, **kwargs: object) -> MagicMock:
             call_order.append("repository")
             return MagicMock()
@@ -169,6 +173,10 @@ class TestMainStartsLogging:
                 side_effect=build_extraction,
             ),
             patch(
+                "expense_report.adapters.inbound.main.SourcePreparationAdapter",
+                side_effect=build_preparation,
+            ),
+            patch(
                 "expense_report.adapters.inbound.main.SqliteExpenseRepository",
                 side_effect=build_repository,
             ),
@@ -196,6 +204,7 @@ class TestMainStartsLogging:
             "audit_verify",
             "extraction_adapter",
             "repository",
+            "preparation_adapter",
             "expense_recording_use_case",
             "application_builder",
             "register_authorization_guard",

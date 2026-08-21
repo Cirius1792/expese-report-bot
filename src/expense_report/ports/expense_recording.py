@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Literal, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from expense_report.domain.models import Expense, ExtractionResult
+from expense_report.domain.source_types import SourceType
 
 
 class RecordingMode(Enum):
@@ -22,7 +23,7 @@ class RecordExpense:
 
     user_id: int
     source: str | bytes
-    source_type: Literal["image", "text"]
+    source_type: SourceType
     mode: RecordingMode
     receipt_photo_id: str | None = None
 
@@ -70,6 +71,13 @@ class CorrectionLimitReached:
     """Maximum Correction attempts exhausted; state cleared; nothing persisted."""
 
 
+@dataclass(frozen=True)
+class SourceRejected:
+    """Raw source was rejected during preparation; nothing extracted or persisted."""
+
+    reason: str
+
+
 RecordingOutcome = (
     ExpenseRecorded
     | ExtractionIncomplete
@@ -77,6 +85,7 @@ RecordingOutcome = (
     | CorrectionResolved
     | CorrectionStillIncomplete
     | CorrectionLimitReached
+    | SourceRejected
 )
 
 

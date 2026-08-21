@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from expense_report.domain.models import Expense, ExtractionResult
+from expense_report.domain.source_types import SourceType
 from expense_report.ports.expense_queries import DeletionResult, ExpenseQueryPort, PeriodSummary
 
 
@@ -29,6 +30,7 @@ def _make_update(
     user_id: int = 12345,
     text: str | None = None,
     photo_file_id: str | None = None,
+    document_file_id: str | None = None,
 ) -> MagicMock:
     """Create a mock Telegram Update with the given attributes."""
     update = MagicMock()
@@ -43,6 +45,11 @@ def _make_update(
         mock_photo = MagicMock()
         mock_photo.file_id = photo_file_id
         update.effective_message.photo = [MagicMock(), mock_photo]
+
+    if document_file_id is not None:
+        mock_document = MagicMock()
+        mock_document.file_id = document_file_id
+        update.effective_message.document = mock_document
 
     return update
 
@@ -90,6 +97,12 @@ class TestStartHandler:
 
         asyncio.run(_handle_start(update, context))
         # No error — handler returns early
+
+    def test_welcome_message_mentions_pdfs(self) -> None:
+        """WELCOME_MESSAGE tells users PDFs are accepted."""
+        from expense_report.adapters.inbound.telegram_bot import WELCOME_MESSAGE
+
+        assert "PDF" in WELCOME_MESSAGE
 
 
 class TestPhotoHandler:
@@ -139,7 +152,7 @@ class TestPhotoHandler:
             RecordExpense(
                 user_id=12345,
                 source=b"receipt-image",
-                source_type="image",
+                source_type=SourceType.IMAGE,
                 mode=RecordingMode.CONVERSATIONAL,
                 receipt_photo_id="photo-abc-123",
             )
@@ -182,7 +195,7 @@ class TestPhotoHandler:
             RecordExpense(
                 user_id=12345,
                 source=b"blurry-receipt",
-                source_type="image",
+                source_type=SourceType.IMAGE,
                 mode=RecordingMode.CONVERSATIONAL,
                 receipt_photo_id="photo-456",
             )
@@ -195,6 +208,131 @@ class TestPhotoHandler:
             "I extracted partial information. Please reply with the"
             " missing details: currency, merchant, date"
         )
+
+
+class TestPdfHandler:
+    """Tests for PDF document handler (Receipt recording through the driving port)."""
+
+    def test_complete_extraction_records_and_confirms(self) -> None:
+        """PDF is translated to a conversational PDF command; confirmation rendered."""
+        from expense_report.adapters.inbound.telegram_bot import _make_pdf_handler
+        from expense_report.ports.expense_recording import (
+            ExpenseRecorded,
+            RecordExpense,
+            RecordingMode,
+        )
+
+        result = ExtractionResult(
+            amount=Decimal("99.00"),
+            currency="EUR",
+            merchant="B2B Supplier",
+            date=date(2026, 7, 30),
+            category="office",
+        )
+        saved = Expense(
+            id=3,
+            amount=Decimal("99.00"),
+            currency="EUR",
+            merchant="B2B Supplier",
+            date=date(2026, 7, 30),
+            category="office",
+            user_id=12345,
+            receipt_photo_id=None,
+            created_at=datetime(2026, 7, 30, 12, 0, 0),
+        )
+        recording = MagicMock()
+        recording.record.return_value = ExpenseRecorded(saved, result)
+
+        handler = _make_pdf_handler(recording)
+        update = _make_update(document_file_id="pdf-file-789")
+        context = _make_context(image_bytes=b"%PDF-1.4 fake pdf bytes")
+
+        asyncio.run(handler(update, context))
+
+        # PTB download preserved: document file_id, raw bytes as source
+        context.bot.get_file.assert_awaited_once_with("pdf-file-789")
+        recording.record.assert_called_once_with(
+            RecordExpense(
+                user_id=12345,
+                source=b"%PDF-1.4 fake pdf bytes",
+                source_type=SourceType.PDF,
+                mode=RecordingMode.CONVERSATIONAL,
+                receipt_photo_id=None,
+            )
+        )
+
+        reply_text = update.effective_message.reply_text.call_args[0][0]
+        assert "✅ Saved." in reply_text
+        assert "99.00" in reply_text
+        assert "EUR" in reply_text
+        assert "B2B Supplier" in reply_text
+
+    def test_partial_extraction_asks_for_missing(self) -> None:
+        """PDF with CorrectionOpened outcome renders the byte-identical partial prompt."""
+        from expense_report.adapters.inbound.telegram_bot import _make_pdf_handler
+        from expense_report.ports.expense_recording import (
+            CorrectionOpened,
+            RecordExpense,
+            RecordingMode,
+        )
+
+        partial = ExtractionResult(
+            amount=Decimal("15.00"),
+            currency=None,
+            merchant=None,
+            date=None,
+            category=None,
+        )
+        recording = MagicMock()
+        recording.record.return_value = CorrectionOpened(partial)
+
+        handler = _make_pdf_handler(recording)
+        update = _make_update(document_file_id="pdf-file-456")
+        context = _make_context(image_bytes=b"%PDF-1.4 fake")
+
+        asyncio.run(handler(update, context))
+
+        recording.record.assert_called_once_with(
+            RecordExpense(
+                user_id=12345,
+                source=b"%PDF-1.4 fake",
+                source_type=SourceType.PDF,
+                mode=RecordingMode.CONVERSATIONAL,
+                receipt_photo_id=None,
+            )
+        )
+
+        # Byte-identical partial prompt; Correction state setup now happens
+        # inside the use case (covered in tests/application)
+        reply_text = update.effective_message.reply_text.call_args[0][0]
+        assert reply_text == (
+            "I extracted partial information. Please reply with the"
+            " missing details: currency, merchant, date"
+        )
+
+    def test_source_rejected_replies_with_explicit_rejection(self) -> None:
+        """SourceRejected renders the reason with page count and 5-page limit."""
+        from expense_report.adapters.inbound.telegram_bot import _make_pdf_handler
+        from expense_report.ports.expense_recording import SourceRejected
+
+        recording = MagicMock()
+        recording.record.return_value = SourceRejected(
+            reason=(
+                "Your PDF has 8 pages. Only PDFs with up to 5 pages are accepted,"
+                " so your request will not be satisfied."
+            )
+        )
+
+        handler = _make_pdf_handler(recording)
+        update = _make_update(document_file_id="pdf-file-999")
+        context = _make_context(image_bytes=b"%PDF-1.4 fake")
+
+        asyncio.run(handler(update, context))
+
+        reply_text = update.effective_message.reply_text.call_args[0][0]
+        assert "8 pages" in reply_text
+        assert "5 pages" in reply_text
+        assert "not be satisfied" in reply_text
 
 
 class TestTextHandler:
@@ -238,7 +376,7 @@ class TestTextHandler:
             RecordExpense(
                 user_id=12345,
                 source="coffee 12.50 usd",
-                source_type="text",
+                source_type=SourceType.TEXT,
                 mode=RecordingMode.CONVERSATIONAL,
                 receipt_photo_id=None,
             )
@@ -420,7 +558,7 @@ class TestRegisterHandlers:
     """Tests that register_handlers wires up the Application correctly."""
 
     def test_registers_all_handlers(self) -> None:
-        """register_handlers adds 8 handlers to the Application.
+        """register_handlers adds 9 handlers to the Application.
 
         In the mocked environment, all handler objects are MagicMock
         instances. We verify the count and that the registration
@@ -436,12 +574,12 @@ class TestRegisterHandlers:
 
         register_handlers(app, recording, queries)
 
-        # Verify 8 handlers were registered
-        assert app.add_handler.call_count == 8
+        # Verify 9 handlers were registered
+        assert app.add_handler.call_count == 9
         # Expected: CommandHandler(start), CommandHandler(report), CommandHandler(list),
         #           CommandHandler(delete), CallbackQueryHandler(list),
         #           CallbackQueryHandler(delete), MessageHandler(photo),
-        #           MessageHandler(text)
+        #           MessageHandler(pdf), MessageHandler(text)
 
     def test_registers_global_error_handler(self) -> None:
         """register_global_error_handler wires the global error handler once."""
@@ -550,7 +688,7 @@ class TestCorrectionFlow:
             RecordExpense(
                 user_id=12345,
                 source="Cafe EUR 15",
-                source_type="text",
+                source_type=SourceType.TEXT,
                 mode=RecordingMode.CONVERSATIONAL,
                 receipt_photo_id=None,
             )
@@ -637,7 +775,7 @@ class TestCorrectionFlow:
             RecordExpense(
                 user_id=12345,
                 source=b"blurry-receipt",
-                source_type="image",
+                source_type=SourceType.IMAGE,
                 mode=RecordingMode.CONVERSATIONAL,
                 receipt_photo_id="photo-456",
             )

@@ -183,11 +183,19 @@ def _execute_text_handler_with_refine(
         from expense_report.adapters.out.dspy_extraction import (
             DspyExtractionAdapter,
         )
+        from expense_report.adapters.out.source_preparation import (
+            SourcePreparationAdapter,
+        )
 
         adapter = DspyExtractionAdapter()
         from expense_report.application.expense_recording import ExpenseRecordingUseCase
 
-        recording = ExpenseRecordingUseCase(adapter, context.repository, context.correction_store)
+        recording = ExpenseRecordingUseCase(
+            SourcePreparationAdapter(),
+            adapter,
+            context.repository,
+            context.correction_store,
+        )
         handler = _make_text_handler(recording)
 
         text = getattr(context, "correction_text", "correction")
@@ -213,11 +221,19 @@ def step_reply_another_correction(context: Any) -> None:
     from expense_report.adapters.out.dspy_extraction import (
         DspyExtractionAdapter,
     )
+    from expense_report.adapters.out.source_preparation import (
+        SourcePreparationAdapter,
+    )
 
     adapter = DspyExtractionAdapter()
     from expense_report.application.expense_recording import ExpenseRecordingUseCase
 
-    recording = ExpenseRecordingUseCase(adapter, context.repository, context.correction_store)
+    recording = ExpenseRecordingUseCase(
+        SourcePreparationAdapter(),
+        adapter,
+        context.repository,
+        context.correction_store,
+    )
     handler = _make_text_handler(recording)
 
     update = make_telegram_update(context, text="another correction")

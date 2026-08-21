@@ -2,28 +2,24 @@
 
 from __future__ import annotations
 
-from typing import Literal, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from expense_report.domain.models import ExtractionResult
+from expense_report.ports.source_preparation import SourceView
 
 
 @runtime_checkable
 class ExtractionPort(Protocol):
-    """Protocol for extracting structured expense data from a source.
+    """Protocol for extracting structured expense data from a normalized source.
 
     Implementations may use dSPy, direct LLM calls, or any other mechanism.
     """
 
-    def extract(
-        self,
-        source: str | bytes,
-        source_type: Literal["image", "text"],
-    ) -> ExtractionResult:
-        """Extract structured expense data from the given source.
+    def extract(self, source: SourceView) -> ExtractionResult:
+        """Extract structured expense data from the given normalized source.
 
         Args:
-            source: The raw input — text (str) or image bytes.
-            source_type: Indicates whether source is an image or text.
+            source: A neutral SourceView — free text or ordered page-image bytes.
 
         Returns:
             ExtractionResult with whatever fields could be extracted.

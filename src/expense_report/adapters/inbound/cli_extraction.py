@@ -1,19 +1,20 @@
 """CLI commands for expense extraction (stories 1-2).
 
-Provides two subcommands:
+Provides three subcommands:
 - extract-from-image IMAGE_PATH
+- extract-from-pdf PDF_PATH
 - extract-from-text TEXT
 
-Accepts --user-id and --db options. Both subcommands route through the
+Accepts --user-id and --db options. All subcommands route through the
 ExpenseRecordingUseCase driving port in ONE_SHOT mode.
 """
 
 from __future__ import annotations
 
 import argparse
-from typing import Literal
 
 from expense_report.domain.models import ExtractionResult
+from expense_report.domain.source_types import SourceType
 
 # CLI entry point — lazy imports for adapters to avoid circular deps
 # at module level and keep import errors contained
@@ -62,6 +63,11 @@ def build_parser() -> argparse.ArgumentParser:
     txt_parser = subparsers.add_parser("extract-from-text", help="Extract expense from free text")
     txt_parser.add_argument("text", type=str, help="Free-text expense description")
 
+    pdf_parser = subparsers.add_parser(
+        "extract-from-pdf", help="Extract expense from a PDF receipt"
+    )
+    pdf_parser.add_argument("pdf_path", type=str, help="Path to the PDF file")
+
     return parser
 
 
@@ -71,6 +77,7 @@ def main() -> None:
     args = parser.parse_args()
 
     from expense_report.adapters.out.dspy_extraction import DspyExtractionAdapter
+    from expense_report.adapters.out.source_preparation import SourcePreparationAdapter
     from expense_report.adapters.out.sqlite_repository import (
         SqliteExpenseRepository,
     )
@@ -83,22 +90,29 @@ def main() -> None:
         ExtractionIncomplete,
         RecordExpense,
         RecordingMode,
+        SourceRejected,
     )
 
     extractor = DspyExtractionAdapter()
     repo = SqliteExpenseRepository(args.db)
-    expense_recording = ExpenseRecordingUseCase(extractor, repo, CorrectionStore())
+    preparation = SourcePreparationAdapter()
+    expense_recording = ExpenseRecordingUseCase(preparation, extractor, repo, CorrectionStore())
 
     source: str | bytes
-    source_type: Literal["image", "text"]
+    source_type: SourceType
     if args.command == "extract-from-image":
         with open(args.image_path, "rb") as f:
             source = f.read()
-        source_type = "image"
+        source_type = SourceType.IMAGE
         source_label = args.image_path
+    elif args.command == "extract-from-pdf":
+        with open(args.pdf_path, "rb") as f:
+            source = f.read()
+        source_type = SourceType.PDF
+        source_label = args.pdf_path
     else:
         source = args.text
-        source_type = "text"
+        source_type = SourceType.TEXT
         source_label = args.text
 
     outcome = expense_recording.record(
@@ -110,6 +124,9 @@ def main() -> None:
             receipt_photo_id=None,
         )
     )
+    if isinstance(outcome, SourceRejected):
+        print(outcome.reason)
+        raise SystemExit(1)
     if isinstance(outcome, ExpenseRecorded):
         result = outcome.extraction
     elif isinstance(outcome, ExtractionIncomplete):

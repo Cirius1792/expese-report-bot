@@ -88,13 +88,19 @@ def step_llm_extracts_photo_complete(
             from expense_report.adapters.out.dspy_extraction import (
                 DspyExtractionAdapter,
             )
+            from expense_report.adapters.out.source_preparation import (
+                SourcePreparationAdapter,
+            )
             from expense_report.application.expense_recording import (
                 ExpenseRecordingUseCase,
             )
 
             adapter = DspyExtractionAdapter()
             recording = ExpenseRecordingUseCase(
-                adapter, context.repository, context.correction_store
+                SourcePreparationAdapter(),
+                adapter,
+                context.repository,
+                context.correction_store,
             )
             handler = _make_photo_handler(recording)
 
@@ -135,13 +141,19 @@ def step_llm_extracts_photo_partial(context: Any, amount: str) -> None:
             from expense_report.adapters.out.dspy_extraction import (
                 DspyExtractionAdapter,
             )
+            from expense_report.adapters.out.source_preparation import (
+                SourcePreparationAdapter,
+            )
             from expense_report.application.expense_recording import (
                 ExpenseRecordingUseCase,
             )
 
             adapter = DspyExtractionAdapter()
             recording = ExpenseRecordingUseCase(
-                adapter, context.repository, context.correction_store
+                SourcePreparationAdapter(),
+                adapter,
+                context.repository,
+                context.correction_store,
             )
             handler = _make_photo_handler(recording)
 
@@ -178,12 +190,20 @@ def step_send_text_message(context: Any, text: str) -> None:
         from expense_report.adapters.out.dspy_extraction import (
             DspyExtractionAdapter,
         )
+        from expense_report.adapters.out.source_preparation import (
+            SourcePreparationAdapter,
+        )
         from expense_report.application.expense_recording import (
             ExpenseRecordingUseCase,
         )
 
         adapter = DspyExtractionAdapter()
-        recording = ExpenseRecordingUseCase(adapter, context.repository, context.correction_store)
+        recording = ExpenseRecordingUseCase(
+            SourcePreparationAdapter(),
+            adapter,
+            context.repository,
+            context.correction_store,
+        )
         handler = _make_text_handler(recording)
         update = make_telegram_update(context, text=text)
         ctx = MagicMock()
