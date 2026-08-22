@@ -158,6 +158,8 @@ mock_filters = MagicMock()
 mock_filters.PHOTO = MagicMock()
 mock_filters.TEXT = MagicMock()
 mock_filters.COMMAND = MagicMock()
+mock_filters.Document = MagicMock()
+mock_filters.Document.PDF = MagicMock()
 mock_ext.filters = mock_filters
 
 # telegram.ext.ContextTypes

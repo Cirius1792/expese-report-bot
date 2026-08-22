@@ -23,6 +23,7 @@ from telegram.ext import (
 )
 
 from expense_report.domain.models import Expense, ExtractionResult
+from expense_report.domain.source_types import SourceType
 from expense_report.ports.expense_queries import (
     ExpenseQueryPort,
 )
@@ -36,13 +37,15 @@ from expense_report.ports.expense_recording import (
     ExtractionIncomplete,
     RecordExpense,
     RecordingMode,
+    SourceRejected,
 )
 
 logger = logging.getLogger(__name__)
 
 WELCOME_MESSAGE = """Welcome! I'm your expense report bot.
 
-Send me a photo of a receipt, or describe your expense like "lunch 15 eur".
+Send me a photo of a receipt, a PDF receipt (up to 5 pages), or
+describe your expense like "lunch 15 eur".
 
 Commands:
 /start - Show this message
@@ -381,6 +384,12 @@ def register_handlers(
     )
     app.add_handler(
         MessageHandler(
+            filters.Document.PDF,
+            _make_pdf_handler(expense_recording),
+        )
+    )
+    app.add_handler(
+        MessageHandler(
             filters.TEXT & ~filters.COMMAND,
             _make_text_handler(expense_recording),
         )
@@ -513,7 +522,7 @@ def _make_photo_handler(
             RecordExpense(
                 user_id=user_id,
                 source=bytes(image_bytes),
-                source_type="image",
+                source_type=SourceType.IMAGE,
                 mode=RecordingMode.CONVERSATIONAL,
                 receipt_photo_id=photo.file_id,
             )
@@ -531,6 +540,60 @@ def _make_photo_handler(
             return
 
         logger.info("Complete extraction for user %s photo", user_id)
+        if isinstance(outcome, ExpenseRecorded):
+            await _reply_with_recorded_expense(update, outcome)
+
+    return handler
+
+
+def _make_pdf_handler(
+    expense_recording: ExpenseRecordingPort,
+):
+    """Factory: create a PDF document handler bound to the recording port."""
+
+    async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if update.effective_message is None or update.effective_user is None:
+            logger.debug("Skipping PDF update with no effective message or user")
+            return
+
+        user_id = update.effective_user.id
+        document = update.effective_message.document
+        if document is None:
+            logger.debug("Skipping PDF update with no document")
+            return
+
+        logger.info("PDF received from user %s", user_id)
+
+        file = await context.bot.get_file(document.file_id)
+        pdf_bytes = await file.download_as_bytearray()
+
+        outcome = expense_recording.record(
+            RecordExpense(
+                user_id=user_id,
+                source=bytes(pdf_bytes),
+                source_type=SourceType.PDF,
+                mode=RecordingMode.CONVERSATIONAL,
+                receipt_photo_id=None,
+            )
+        )
+
+        if isinstance(outcome, SourceRejected):
+            logger.info("PDF source rejected for user %s: %s", user_id, outcome.reason)
+            await update.effective_message.reply_text(outcome.reason)
+            return
+
+        if isinstance(outcome, CorrectionOpened):
+            result = outcome.extraction
+            missing = _missing_fields(result)
+            logger.info(
+                "Partial extraction for user %s pdf: missing %s",
+                user_id,
+                ", ".join(missing),
+            )
+            await _reply_with_incomplete_extraction(update, result)
+            return
+
+        logger.info("Complete extraction for user %s pdf", user_id)
         if isinstance(outcome, ExpenseRecorded):
             await _reply_with_recorded_expense(update, outcome)
 
@@ -559,7 +622,7 @@ def _make_text_handler(
             RecordExpense(
                 user_id=user_id,
                 source=text,
-                source_type="text",
+                source_type=SourceType.TEXT,
                 mode=RecordingMode.CONVERSATIONAL,
                 receipt_photo_id=None,
             )

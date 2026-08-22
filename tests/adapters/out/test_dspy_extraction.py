@@ -12,6 +12,10 @@ import pytest
 
 from expense_report.domain.models import ExtractionResult
 from expense_report.ports.extraction import ExtractionPort
+from expense_report.ports.source_preparation import (
+    FreeTextSourceView,
+    ReceiptPagesSourceView,
+)
 
 
 class TestConstructor:
@@ -115,7 +119,7 @@ class TestExtractText:
             return_value=MagicMock(return_value=mock_prediction),
         ):
             adapter = DspyExtractionAdapter()
-            result = adapter.extract("supermarket 42.50 eur", "text")
+            result = adapter.extract(FreeTextSourceView(text="supermarket 42.50 eur"))
 
         assert isinstance(result, ExtractionResult)
         assert result.amount == Decimal("42.50")
@@ -230,7 +234,7 @@ class TestExtractImage:
         with patch("dspy.ChainOfThought"), patch("dspy.Predict"):
             adapter = DspyExtractionAdapter()
             image_bytes = b"fake-image-data"
-            result = adapter.extract(image_bytes, "image")
+            result = adapter.extract(ReceiptPagesSourceView(page_images=(image_bytes,)))
 
         # Verify OpenAI client was called with image_url content
         create_call = mock_client.chat.completions.create
@@ -243,6 +247,80 @@ class TestExtractImage:
 
         assert isinstance(result, ExtractionResult)
         assert result.amount == Decimal("15.00")
+
+    @patch.dict(
+        os.environ,
+        {
+            "LLM_BASE_URL": "http://test:8080",
+            "LLM_API_KEY": "test-key",
+            "LLM_MODEL": "test-model",
+        },
+        clear=True,
+    )
+    @patch("dspy.LM")
+    @patch("dspy.configure")
+    @patch("PIL.Image.open")
+    @patch("expense_report.adapters.out.dspy_extraction.OpenAI")
+    def test_extract_multi_page_uses_one_request_with_n_image_parts(
+        self,
+        mock_openai_cls: MagicMock,
+        mock_image_open: MagicMock,
+        mock_configure: MagicMock,
+        mock_lm_cls: MagicMock,
+    ) -> None:
+        """An N-page receipt produces exactly one vision request with N image parts."""
+        mock_lm = MagicMock()
+        mock_lm_cls.return_value = mock_lm
+
+        mock_img = MagicMock()
+        mock_image_open.return_value = mock_img
+
+        def fake_save(buf, format, quality):
+            buf.write(b"fake-jpeg-data")
+
+        mock_img.save.side_effect = fake_save
+
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.choices = [
+            MagicMock(
+                message=MagicMock(
+                    content='{"amount":"99.00","currency":"EUR","merchant":"B2B","date":"2026-07-30","category":""}'
+                )
+            )
+        ]
+        mock_client.chat.completions.create.return_value = mock_response
+
+        from expense_report.adapters.out.dspy_extraction import (
+            DspyExtractionAdapter,
+        )
+
+        with patch("dspy.ChainOfThought"), patch("dspy.Predict"):
+            adapter = DspyExtractionAdapter()
+            result = adapter.extract(
+                ReceiptPagesSourceView(page_images=(b"page-1", b"page-2", b"page-3"))
+            )
+
+        # Exactly ONE vision request for the whole PDF
+        create_call = mock_client.chat.completions.create
+        assert create_call.call_count == 1
+        messages = create_call.call_args[1]["messages"]
+        content_parts = messages[0]["content"]
+
+        # One text prompt + N image parts, in page order
+        text_part = content_parts[0]
+        assert text_part["type"] == "text"
+        assert "one receipt" in text_part["text"].lower()
+        assert "one json object" in text_part["text"].lower()
+
+        image_parts = [part for part in content_parts if part["type"] == "image_url"]
+        assert len(image_parts) == 3
+        for part in image_parts:
+            assert part["image_url"]["url"].startswith("data:image/jpeg;base64,")
+
+        assert isinstance(result, ExtractionResult)
+        assert result.amount == Decimal("99.00")
 
     @patch.dict(
         os.environ,
@@ -272,7 +350,7 @@ class TestExtractImage:
             adapter = DspyExtractionAdapter()
 
         with pytest.raises(AssertionError):
-            adapter.extract("not bytes", "image")  # type: ignore[arg-type]
+            adapter.extract("not a source view")  # type: ignore
 
 
 class TestRetry:
@@ -323,7 +401,7 @@ class TestRetry:
         with patch("dspy.ChainOfThought", return_value=mock_predictor):
             with patch("time.sleep") as mock_sleep:
                 adapter = DspyExtractionAdapter()
-                result = adapter.extract("20 usd store", "text")
+                result = adapter.extract(FreeTextSourceView(text="20 usd store"))
 
         assert call_count == 2
         mock_sleep.assert_called_once_with(1)
@@ -360,7 +438,7 @@ class TestRetry:
                 adapter = DspyExtractionAdapter()
 
                 with pytest.raises(RuntimeError, match="consistently failing"):
-                    adapter.extract("test text", "text")
+                    adapter.extract(FreeTextSourceView(text="test text"))
 
         assert mock_predictor.call_count == 3
         assert mock_sleep.call_args_list[0][0][0] == 1  # first sleep 1s
@@ -406,7 +484,7 @@ class TestValidation:
             return_value=MagicMock(return_value=mock_prediction),
         ):
             adapter = DspyExtractionAdapter()
-            result = adapter.extract("10 shop", "text")
+            result = adapter.extract(FreeTextSourceView(text="10 shop"))
 
         assert result.currency is None
 
@@ -446,7 +524,7 @@ class TestValidation:
             return_value=MagicMock(return_value=mock_prediction),
         ):
             adapter = DspyExtractionAdapter()
-            result = adapter.extract("10 shop", "text")
+            result = adapter.extract(FreeTextSourceView(text="10 shop"))
 
         assert result.currency is None
 
@@ -486,7 +564,7 @@ class TestValidation:
             return_value=MagicMock(return_value=mock_prediction),
         ):
             adapter = DspyExtractionAdapter()
-            result = adapter.extract("10 eur shop", "text")
+            result = adapter.extract(FreeTextSourceView(text="10 eur shop"))
 
         assert result.date is None
 
@@ -526,7 +604,7 @@ class TestValidation:
             return_value=MagicMock(return_value=mock_prediction),
         ):
             adapter = DspyExtractionAdapter()
-            result = adapter.extract("10 eur shop", "text")
+            result = adapter.extract(FreeTextSourceView(text="10 eur shop"))
 
         assert result.date is None
 
@@ -566,7 +644,7 @@ class TestValidation:
             return_value=MagicMock(return_value=mock_prediction),
         ):
             adapter = DspyExtractionAdapter()
-            result = adapter.extract("10 eur shop", "text")
+            result = adapter.extract(FreeTextSourceView(text="10 eur shop"))
 
         assert result.amount is None
 
@@ -606,7 +684,7 @@ class TestValidation:
             return_value=MagicMock(return_value=mock_prediction),
         ):
             adapter = DspyExtractionAdapter()
-            result = adapter.extract("10 eur shop", "text")
+            result = adapter.extract(FreeTextSourceView(text="10 eur shop"))
 
         assert result.amount is None
 
@@ -646,7 +724,7 @@ class TestValidation:
             return_value=MagicMock(return_value=mock_prediction),
         ):
             adapter = DspyExtractionAdapter()
-            result = adapter.extract("10 eur", "text")
+            result = adapter.extract(FreeTextSourceView(text="10 eur"))
 
         assert result.merchant is None
 
@@ -686,7 +764,7 @@ class TestValidation:
             return_value=MagicMock(return_value=mock_prediction),
         ):
             adapter = DspyExtractionAdapter()
-            result = adapter.extract("10 eur shop", "text")
+            result = adapter.extract(FreeTextSourceView(text="10 eur shop"))
 
         assert result.category is None
 
@@ -991,7 +1069,7 @@ class TestExplicitConstructor:
         mock_configure: MagicMock,
         mock_lm_cls: MagicMock,
     ) -> None:
-        """_call_image_with_retry uses cached values, not os.environ."""
+        """_call_vision_with_retry uses cached values, not os.environ."""
         mock_lm_cls.return_value = MagicMock()
         mock_chain.return_value = MagicMock()
         mock_predict_cls.return_value = MagicMock()
@@ -1011,12 +1089,18 @@ class TestExplicitConstructor:
                 model="openai/explicit-model/v2",
             )
 
-        # Trigger image extraction (will call _call_image_with_retry internally)
-        fake_b64 = "Qk1mAAAAAAAAADYAAAAoAAAAAQAAAAEAAAABACAAAAAAAAYAAAASCwAAEgsAAAAAAAAAAAAA"
+        # Trigger the vision path (will call _call_vision_with_retry internally)
+        content_parts = [
+            {"type": "text", "text": "Extract the receipt."},
+            {
+                "type": "image_url",
+                "image_url": {"url": "data:image/jpeg;base64,ZmFrZQ=="},
+            },
+        ]
 
         # Should NOT raise KeyError even though os.environ is empty
         try:
-            adapter._call_image_with_retry(fake_b64)
+            adapter._call_vision_with_retry(content_parts)
         except Exception:
             # Expected: the mock client's chat.completions.create may not be set up fully,
             # but we only care that OpenAI() was called with the correct args

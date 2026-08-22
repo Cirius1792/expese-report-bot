@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from expense_report.domain.models import ExtractionResult
+from expense_report.ports.source_preparation import FreeTextSourceView, ReceiptPagesSourceView
 
 
 @pytest.fixture(autouse=True)
@@ -63,7 +64,7 @@ class TestTextExtractionLogging:
             adapter = DspyExtractionAdapter()
 
         caplog.set_level(logging.INFO)
-        result = adapter.extract("lunch 15 eur", "text")
+        result = adapter.extract(FreeTextSourceView(text="lunch 15 eur"))
 
         assert result.is_complete is True
         records = [r for r in caplog.records if r.levelno >= logging.INFO]
@@ -104,7 +105,7 @@ class TestTextExtractionLogging:
         caplog.set_level(logging.DEBUG)
 
         source_text = "this is a very specific expense description that should not appear in logs"
-        adapter.extract(source_text, "text")
+        adapter.extract(FreeTextSourceView(text=source_text))
 
         for record in caplog.records:
             assert source_text not in record.message, (
@@ -162,7 +163,7 @@ class TestImageExtractionLogging:
             adapter = DspyExtractionAdapter()
 
         caplog.set_level(logging.INFO)
-        result = adapter.extract(b"fake-image-data", "image")
+        result = adapter.extract(ReceiptPagesSourceView(page_images=(b"fake-image-data",)))
 
         assert result.is_complete is True
         records = [r for r in caplog.records if r.levelno >= logging.INFO]
@@ -215,7 +216,7 @@ class TestImageExtractionLogging:
             adapter = DspyExtractionAdapter()
 
         caplog.set_level(logging.DEBUG)
-        adapter.extract(b"fake-image-data", "image")
+        adapter.extract(ReceiptPagesSourceView(page_images=(b"fake-image-data",)))
 
         for record in caplog.records:
             assert "base64" not in record.message.lower(), (
@@ -331,7 +332,7 @@ class TestRetryLogging:
             adapter = DspyExtractionAdapter()
 
         caplog.set_level(logging.WARNING)
-        adapter.extract("20 usd store", "text")
+        adapter.extract(FreeTextSourceView(text="20 usd store"))
 
         warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert len(warning_records) >= 1, (
@@ -367,7 +368,7 @@ class TestRetryLogging:
 
         caplog.set_level(logging.DEBUG)
         with pytest.raises(RuntimeError):
-            adapter.extract("test", "text")
+            adapter.extract(FreeTextSourceView(text="test"))
 
         for record in caplog.records:
             assert "test-key" not in record.message, (
@@ -402,7 +403,7 @@ class TestRetryLogging:
         caplog.set_level(logging.DEBUG)
         source = "my secret lunch at fancy restaurant cost 42.50 euros"
         with pytest.raises(RuntimeError):
-            adapter.extract(source, "text")
+            adapter.extract(FreeTextSourceView(text=source))
 
         for record in caplog.records:
             assert source not in record.message, (

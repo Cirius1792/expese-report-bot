@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
 from expense_report.domain.models import ExtractionResult
 from expense_report.ports.extraction import ExtractionPort
+from expense_report.ports.source_preparation import (
+    FreeTextSourceView,
+    SourceView,
+)
 
 
 class TestExtractionPortProtocol:
@@ -16,11 +18,7 @@ class TestExtractionPortProtocol:
         should be recognized as an ExtractionPort implementation."""
 
         class FakeExtractor:
-            def extract(
-                self,
-                source: str | bytes,
-                source_type: Literal["image", "text"],
-            ) -> ExtractionResult:
+            def extract(self, source: SourceView) -> ExtractionResult:
                 return ExtractionResult(
                     amount=None,
                     currency=None,
@@ -51,11 +49,7 @@ class TestExtractionPortProtocol:
         """The protocol compliance check and actual call should both work."""
 
         class SimpleExtractor:
-            def extract(
-                self,
-                source: str | bytes,
-                source_type: Literal["image", "text"],
-            ) -> ExtractionResult:
+            def extract(self, source: SourceView) -> ExtractionResult:
                 return ExtractionResult(
                     amount=None,
                     currency=None,
@@ -78,6 +72,6 @@ class TestExtractionPortProtocol:
                 )
 
         extractor = SimpleExtractor()
-        result = extractor.extract("lunch 15 eur", "text")
+        result = extractor.extract(FreeTextSourceView(text="lunch 15 eur"))
         assert isinstance(result, ExtractionResult)
         assert result.is_complete is False

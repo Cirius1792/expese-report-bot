@@ -10,6 +10,7 @@ dependencies = [
     "dspy-ai>=2.6",
     "openai>=1.0",
     "pillow>=11",
+    "pypdfium2>=5.13.0",
     "python-telegram-bot[job-queue]>=21.11",
 ]
 
