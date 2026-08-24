@@ -130,18 +130,38 @@ class DspyExtractionAdapter:
             category=prediction.category if prediction.category else None,
         )
 
-    def extract(self, source: SourceView) -> ExtractionResult:
-        """Extract structured expense data from a normalized source view."""
+    def extract(self, source: SourceView, current_date: date | None = None) -> ExtractionResult:
+        """Extract structured expense data from a normalized source view.
+
+        Args:
+            source: The normalized source view (free text or receipt pages).
+            current_date: The current date, used as fallback when the user
+                message does not mention a date. Defaults to today.
+
+        Returns:
+            An ExtractionResult with parsed expense fields.
+        """
         if isinstance(source, FreeTextSourceView):
-            return self._extract_text(source.text)
+            return self._extract_text(source.text, current_date=current_date)
         if isinstance(source, ReceiptPagesSourceView):
             return self._extract_receipt_pages(source.page_images)
         raise AssertionError(f"Unknown source view: {type(source).__name__}")
 
-    def _extract_text(self, source: str) -> ExtractionResult:
-        """Extract structured expense data from free text via dSPy ChainOfThought."""
+    def _extract_text(self, source: str, current_date: date | None = None) -> ExtractionResult:
+        """Extract structured expense data from free text via dSPy ChainOfThought.
+
+        Prepends the current date to the prompt so the LLM can use it as a
+        fallback when the user message does not explicitly mention a date.
+        """
         logger.info("Extracting from text source")
-        prediction = self._call_text_with_retry(source)
+        if current_date is None:
+            current_date = date.today()
+        prompt = (
+            f"Current date: {current_date.isoformat()}. "
+            f"If the description does not mention a date, assume the expense "
+            f"was made on this date.\n\n{source}"
+        )
+        prediction = self._call_text_with_retry(prompt)
         result = ExtractionResult(
             amount=self._parse_amount(prediction.amount),
             currency=self._parse_currency(prediction.currency),
