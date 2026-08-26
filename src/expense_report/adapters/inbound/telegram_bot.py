@@ -12,7 +12,7 @@ from decimal import Decimal
 from html import escape as _html_escape
 from io import BytesIO
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -49,8 +49,33 @@ describe your expense like "lunch 15 eur".
 
 Commands:
 /start - Show this message
+/list - Browse your expenses by month
 /report - Get your monthly expense report as CSV
-/list - Browse your expenses by month"""
+/add - How to track a new expense
+/remove - How to delete an expense"""
+
+# Hint-only prompts for the /add and /remove menu commands (issue #10).
+# They never open a wizard and never touch the recording/query ports.
+ADD_EXPENSE_PROMPT = (
+    "To track a new expense, send me a photo or PDF of the receipt/invoice,"
+    " or describe it in text with at least the amount and the merchant —"
+    ' e.g. "lunch 15 eur".'
+)
+
+REMOVE_EXPENSE_PROMPT = (
+    "To remove an expense, use /delete <expense_id> — you'll find each"
+    " expense ID in the /list view. You can also tap the 🗑️ Delete button"
+    " under a freshly recorded expense."
+)
+
+# Native Telegram command menu (issue #10): tappable hint buttons shown
+# next to the input field. Order defines the button order in the client.
+BOT_COMMANDS: list[BotCommand] = [
+    BotCommand("list", "Browse your expenses by month"),
+    BotCommand("report", "Get your monthly expense report as CSV"),
+    BotCommand("add", "How to track a new expense"),
+    BotCommand("remove", "How to delete an expense"),
+]
 
 # Generic user-facing message for unhandled errors (issue #3). Deliberately
 # vague: exception details are logged, never sent to the user.
@@ -354,6 +379,35 @@ def _make_delete_handler(expense_queries: ExpenseQueryPort):
     return handler
 
 
+async def _handle_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /add command — reply with the add-expense usage prompt."""
+    if update.effective_message is None or update.effective_user is None:
+        logger.debug("Skipping /add update with no effective message or user")
+        return
+    logger.info("User %s requested add-expense help", update.effective_user.id)
+    await update.effective_message.reply_text(ADD_EXPENSE_PROMPT)
+
+
+async def _handle_remove(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /remove command — reply with the delete-expense usage prompt."""
+    if update.effective_message is None or update.effective_user is None:
+        logger.debug("Skipping /remove update with no effective message or user")
+        return
+    logger.info("User %s requested remove-expense help", update.effective_user.id)
+    await update.effective_message.reply_text(REMOVE_EXPENSE_PROMPT)
+
+
+async def setup_command_menu(app: Application) -> None:
+    """Register the native Telegram command menu (post_init hook).
+
+    Runs after PTB bot initialization, before polling starts. The menu
+    surfaces list/report as existing commands and add/remove as hint
+    commands (issue #10).
+    """
+    await app.bot.set_my_commands(BOT_COMMANDS)
+    logger.info("Telegram command menu registered (%d commands)", len(BOT_COMMANDS))
+
+
 def register_handlers(
     app: Application,
     expense_recording: ExpenseRecordingPort,
@@ -364,6 +418,8 @@ def register_handlers(
     app.add_handler(CommandHandler("report", _make_report_handler(expense_queries)))
     app.add_handler(CommandHandler("list", _make_list_handler(expense_queries)))
     app.add_handler(CommandHandler("delete", _make_delete_handler(expense_queries)))
+    app.add_handler(CommandHandler("add", _handle_add))
+    app.add_handler(CommandHandler("remove", _handle_remove))
     app.add_handler(
         CallbackQueryHandler(
             _make_list_callback_handler(expense_queries),

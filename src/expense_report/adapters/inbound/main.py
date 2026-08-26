@@ -22,6 +22,7 @@ from expense_report.adapters.inbound.authorization import (
 from expense_report.adapters.inbound.telegram_bot import (
     register_global_error_handler,
     register_handlers,
+    setup_command_menu,
 )
 from expense_report.adapters.out.dspy_extraction import DspyExtractionAdapter
 from expense_report.adapters.out.source_preparation import SourcePreparationAdapter
@@ -99,7 +100,7 @@ def main() -> None:
         preparation, extraction, repository, correction_store
     )
 
-    app = Application.builder().token(token).build()
+    app = Application.builder().token(token).post_init(setup_command_menu).build()
     register_authorization_guard(app, authorized_user_ids, unauthorized_audit)
     register_handlers(app, expense_recording, expense_queries)
     register_global_error_handler(app)

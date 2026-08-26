@@ -107,6 +107,7 @@ class TestMainStartsLogging:
         import expense_report.adapters.inbound.main as main_module
 
         call_order: list[str] = []
+        mock_builder_instance_ref: dict[str, MagicMock] = {}
 
         def configure_logging() -> str:
             call_order.append("configure_logging")
@@ -146,7 +147,11 @@ class TestMainStartsLogging:
             mock_builder_instance = MagicMock()
             mock_app = MagicMock()
             mock_app.run_polling.side_effect = lambda: call_order.append("run_polling")
-            mock_builder_instance.token.return_value.build.return_value = mock_app
+            # main() chains .token(...).post_init(...).build()
+            mock_builder_instance.token.return_value.post_init.return_value.build.return_value = (
+                mock_app
+            )
+            mock_builder_instance_ref["builder"] = mock_builder_instance
             return mock_builder_instance
 
         def register_handlers(*args: object, **kwargs: object) -> None:
@@ -212,3 +217,7 @@ class TestMainStartsLogging:
             "register_global_error_handler",
             "run_polling",
         ]
+
+        # The command menu (issue #10) is wired as the Application post_init hook
+        builder = mock_builder_instance_ref["builder"]
+        builder.token.return_value.post_init.assert_called_once_with(main_module.setup_command_menu)
