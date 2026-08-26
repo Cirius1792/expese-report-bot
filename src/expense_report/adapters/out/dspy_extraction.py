@@ -95,14 +95,24 @@ class DspyExtractionAdapter:
         self,
         original: ExtractionResult,
         correction_text: str,
+        current_date: date | None = None,
     ) -> ExtractionResult:
         """Refine a partial extraction with user-supplied corrections.
 
         Creates a combined prompt describing the original partial extraction
         and the user's correction text, then re-runs extraction via dSPy.
+
+        The current date is prepended so the LLM can resolve relative date
+        references (e.g. "yesterday", "last Monday") in the correction text.
         """
         logger.info("Refining extraction with user correction text")
+        if current_date is None:
+            current_date = date.today()
         source = (
+            f"Current date: {current_date.isoformat()}. "
+            f"Use this date to resolve relative date references; "
+            f"if no date is mentioned anywhere, assume the expense "
+            f"was made on this date.\n\n"
             f"Original partial extraction:\n"
             f"  Amount: {original.amount}\n"
             f"  Currency: {original.currency}\n"

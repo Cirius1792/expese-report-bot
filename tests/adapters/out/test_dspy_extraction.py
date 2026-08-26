@@ -1406,3 +1406,121 @@ class TestCurrentDate:
         assert (
             "fallback" in source.lower() or "assume" in source.lower() or "today" in source.lower()
         )
+
+
+class TestRefineCurrentDate:
+    """Test that refine() passes current_date into the LLM prompt."""
+
+    @patch.dict(
+        os.environ,
+        {
+            "LLM_BASE_URL": "http://test:8080",
+            "LLM_API_KEY": "test-key",
+            "LLM_MODEL": "test-model",
+        },
+        clear=True,
+    )
+    @patch("dspy.LM")
+    @patch("dspy.configure")
+    def test_refine_passes_current_date_to_prompt(
+        self,
+        mock_configure: MagicMock,
+        mock_lm_cls: MagicMock,
+    ) -> None:
+        """When current_date is provided, the refine prompt starts with it."""
+        mock_lm = MagicMock()
+        mock_lm_cls.return_value = mock_lm
+
+        mock_prediction = MagicMock()
+        mock_prediction.amount = "10.00"
+        mock_prediction.currency = "EUR"
+        mock_prediction.merchant = "Taxi"
+        mock_prediction.date = "2026-07-13"
+        mock_prediction.category = "transport"
+
+        from expense_report.adapters.out.dspy_extraction import (
+            DspyExtractionAdapter,
+        )
+
+        captured_source: list[str] = []
+
+        def capture_source(*args: Any, **kwargs: Any) -> MagicMock:
+            captured_source.append(kwargs.get("source", args[0] if args else ""))
+            return mock_prediction
+
+        with patch(
+            "dspy.ChainOfThought",
+            return_value=MagicMock(side_effect=capture_source),
+        ):
+            adapter = DspyExtractionAdapter()
+            original = ExtractionResult(
+                amount=Decimal("10.00"),
+                currency="EUR",
+                merchant=None,
+                date=None,
+                category=None,
+            )
+            adapter.refine(
+                original,
+                "actually it was last Monday",
+                current_date=date(2026, 7, 18),
+            )
+
+        assert len(captured_source) == 1
+        source = captured_source[0]
+        assert source.startswith("Current date: 2026-07-18.")
+
+    @patch.dict(
+        os.environ,
+        {
+            "LLM_BASE_URL": "http://test:8080",
+            "LLM_API_KEY": "test-key",
+            "LLM_MODEL": "test-model",
+        },
+        clear=True,
+    )
+    @patch("dspy.LM")
+    @patch("dspy.configure")
+    def test_refine_defaults_to_today_when_no_current_date(
+        self,
+        mock_configure: MagicMock,
+        mock_lm_cls: MagicMock,
+    ) -> None:
+        """When current_date is not provided, the refine prompt uses today."""
+        mock_lm = MagicMock()
+        mock_lm_cls.return_value = mock_lm
+
+        mock_prediction = MagicMock()
+        mock_prediction.amount = "10.00"
+        mock_prediction.currency = "EUR"
+        mock_prediction.merchant = "Taxi"
+        mock_prediction.date = "2026-08-26"
+        mock_prediction.category = "transport"
+
+        from expense_report.adapters.out.dspy_extraction import (
+            DspyExtractionAdapter,
+        )
+
+        captured_source: list[str] = []
+
+        def capture_source(*args: Any, **kwargs: Any) -> MagicMock:
+            captured_source.append(kwargs.get("source", args[0] if args else ""))
+            return mock_prediction
+
+        with patch(
+            "dspy.ChainOfThought",
+            return_value=MagicMock(side_effect=capture_source),
+        ):
+            adapter = DspyExtractionAdapter()
+            original = ExtractionResult(
+                amount=Decimal("10.00"),
+                currency="EUR",
+                merchant=None,
+                date=None,
+                category=None,
+            )
+            adapter.refine(original, "actually it was last Monday")
+
+        assert len(captured_source) == 1
+        source = captured_source[0]
+        assert source.startswith(f"Current date: {date.today().isoformat()}.")
