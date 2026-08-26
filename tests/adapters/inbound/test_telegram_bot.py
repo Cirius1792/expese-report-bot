@@ -104,6 +104,120 @@ class TestStartHandler:
 
         assert "PDF" in WELCOME_MESSAGE
 
+    def test_welcome_message_advertises_menu_commands(self) -> None:
+        """WELCOME_MESSAGE advertises the same commands as the Telegram menu."""
+        from expense_report.adapters.inbound.telegram_bot import WELCOME_MESSAGE
+
+        for command in ("/list", "/report", "/add", "/remove"):
+            assert command in WELCOME_MESSAGE
+
+
+class TestAddHandler:
+    """Tests for /add hint command handler (issue #10)."""
+
+    def test_replies_with_add_usage_prompt(self) -> None:
+        """/add replies with a prompt explaining how to record an expense."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            ADD_EXPENSE_PROMPT,
+            _handle_add,
+        )
+
+        update = _make_update(text="/add")
+        context = MagicMock()
+
+        asyncio.run(_handle_add(update, context))
+
+        update.effective_message.reply_text.assert_awaited_once_with(ADD_EXPENSE_PROMPT)
+
+    def test_prompt_mentions_amount_and_merchant(self) -> None:
+        """The add prompt requires at least amount and merchant."""
+        from expense_report.adapters.inbound.telegram_bot import ADD_EXPENSE_PROMPT
+
+        assert "amount" in ADD_EXPENSE_PROMPT
+        assert "merchant" in ADD_EXPENSE_PROMPT
+
+    def test_no_message_does_nothing(self) -> None:
+        """When effective_message is None, handler returns silently."""
+        from expense_report.adapters.inbound.telegram_bot import _handle_add
+
+        update = MagicMock()
+        update.effective_message = None
+        context = MagicMock()
+
+        asyncio.run(_handle_add(update, context))
+        # No error — handler returns early
+
+
+class TestRemoveHandler:
+    """Tests for /remove hint command handler (issue #10)."""
+
+    def test_replies_with_remove_usage_prompt(self) -> None:
+        """/remove replies with a prompt explaining how to delete an expense."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            REMOVE_EXPENSE_PROMPT,
+            _handle_remove,
+        )
+
+        update = _make_update(text="/remove")
+        context = MagicMock()
+
+        asyncio.run(_handle_remove(update, context))
+
+        update.effective_message.reply_text.assert_awaited_once_with(REMOVE_EXPENSE_PROMPT)
+
+    def test_prompt_mentions_delete_usage(self) -> None:
+        """The remove prompt points at /delete <expense_id> and the delete button."""
+        from expense_report.adapters.inbound.telegram_bot import REMOVE_EXPENSE_PROMPT
+
+        assert "/delete" in REMOVE_EXPENSE_PROMPT
+        assert "<expense_id>" in REMOVE_EXPENSE_PROMPT
+        assert "Delete" in REMOVE_EXPENSE_PROMPT
+
+    def test_no_message_does_nothing(self) -> None:
+        """When effective_message is None, handler returns silently."""
+        from expense_report.adapters.inbound.telegram_bot import _handle_remove
+
+        update = MagicMock()
+        update.effective_message = None
+        context = MagicMock()
+
+        asyncio.run(_handle_remove(update, context))
+        # No error — handler returns early
+
+
+class TestCommandMenu:
+    """Tests for the native Telegram command menu registration (issue #10)."""
+
+    def test_setup_command_menu_calls_set_my_commands(self) -> None:
+        """setup_command_menu registers BOT_COMMANDS on the bot."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            BOT_COMMANDS,
+            setup_command_menu,
+        )
+
+        app = MagicMock()
+        app.bot.set_my_commands = AsyncMock()
+
+        asyncio.run(setup_command_menu(app))
+
+        app.bot.set_my_commands.assert_awaited_once_with(BOT_COMMANDS)
+
+    def test_menu_has_exactly_four_commands_in_order(self) -> None:
+        """Menu exposes list, report, add, remove in that order."""
+        from expense_report.adapters.inbound.telegram_bot import BOT_COMMANDS
+
+        names = [command.command for command in BOT_COMMANDS]
+        assert names == ["list", "report", "add", "remove"]
+
+    def test_menu_descriptions_are_user_facing_and_short(self) -> None:
+        """Each command has a non-empty description of at most 256 chars."""
+        from expense_report.adapters.inbound.telegram_bot import BOT_COMMANDS
+
+        for command in BOT_COMMANDS:
+            assert isinstance(command.description, str)
+            assert len(command.description) > 0
+            assert len(command.description) <= 256
+
 
 class TestPhotoHandler:
     """Tests for photo message handler (Receipt recording through the driving port)."""
@@ -558,7 +672,7 @@ class TestRegisterHandlers:
     """Tests that register_handlers wires up the Application correctly."""
 
     def test_registers_all_handlers(self) -> None:
-        """register_handlers adds 9 handlers to the Application.
+        """register_handlers adds 11 handlers to the Application.
 
         In the mocked environment, all handler objects are MagicMock
         instances. We verify the count and that the registration
@@ -574,12 +688,12 @@ class TestRegisterHandlers:
 
         register_handlers(app, recording, queries)
 
-        # Verify 9 handlers were registered
-        assert app.add_handler.call_count == 9
+        # Verify 11 handlers were registered
+        assert app.add_handler.call_count == 11
         # Expected: CommandHandler(start), CommandHandler(report), CommandHandler(list),
-        #           CommandHandler(delete), CallbackQueryHandler(list),
-        #           CallbackQueryHandler(delete), MessageHandler(photo),
-        #           MessageHandler(pdf), MessageHandler(text)
+        #           CommandHandler(delete), CommandHandler(add), CommandHandler(remove),
+        #           CallbackQueryHandler(list), CallbackQueryHandler(delete),
+        #           MessageHandler(photo), MessageHandler(pdf), MessageHandler(text)
 
     def test_registers_global_error_handler(self) -> None:
         """register_global_error_handler wires the global error handler once."""

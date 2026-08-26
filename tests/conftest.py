@@ -124,6 +124,16 @@ class _FakeInlineKeyboardMarkup:
 mock_telegram.InlineKeyboardButton = _FakeInlineKeyboardButton
 mock_telegram.InlineKeyboardMarkup = _FakeInlineKeyboardMarkup
 
+
+# BotCommand — simple dataclass for test assertions (command menu, issue #10)
+class _FakeBotCommand:
+    def __init__(self, command: str, description: str):
+        self.command = command
+        self.description = description
+
+
+mock_telegram.BotCommand = _FakeBotCommand
+
 # telegram.ext
 mock_ext = MagicMock()
 mock_telegram.ext = mock_ext
