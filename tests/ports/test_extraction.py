@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 from expense_report.domain.models import ExtractionResult
 from expense_report.ports.extraction import ExtractionPort
 from expense_report.ports.source_preparation import (
@@ -18,7 +20,11 @@ class TestExtractionPortProtocol:
         should be recognized as an ExtractionPort implementation."""
 
         class FakeExtractor:
-            def extract(self, source: SourceView) -> ExtractionResult:
+            def extract(
+                self,
+                source: SourceView,
+                current_date: date | None = None,
+            ) -> ExtractionResult:
                 return ExtractionResult(
                     amount=None,
                     currency=None,
@@ -31,6 +37,7 @@ class TestExtractionPortProtocol:
                 self,
                 original: ExtractionResult,
                 correction_text: str,
+                current_date: date | None = None,
             ) -> ExtractionResult:
                 return ExtractionResult(
                     amount=None,
@@ -49,7 +56,11 @@ class TestExtractionPortProtocol:
         """The protocol compliance check and actual call should both work."""
 
         class SimpleExtractor:
-            def extract(self, source: SourceView) -> ExtractionResult:
+            def extract(
+                self,
+                source: SourceView,
+                current_date: date | None = None,
+            ) -> ExtractionResult:
                 return ExtractionResult(
                     amount=None,
                     currency=None,
@@ -62,6 +73,7 @@ class TestExtractionPortProtocol:
                 self,
                 original: ExtractionResult,
                 correction_text: str,
+                current_date: date | None = None,
             ) -> ExtractionResult:
                 return ExtractionResult(
                     amount=None,

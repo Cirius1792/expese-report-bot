@@ -1181,3 +1181,346 @@ class TestExplicitConstructor:
         assert adapter._base_url == "http://a:1"
         assert adapter._api_key == "k"
         assert adapter._model == "m"
+
+
+class TestCurrentDate:
+    """Test that current_date is passed to the LLM prompt for free-text extraction."""
+
+    @patch.dict(
+        os.environ,
+        {
+            "LLM_BASE_URL": "http://test:8080",
+            "LLM_API_KEY": "test-key",
+            "LLM_MODEL": "test-model",
+        },
+        clear=True,
+    )
+    @patch("dspy.LM")
+    @patch("dspy.configure")
+    def test_extract_text_passes_current_date_to_prompt(
+        self,
+        mock_configure: MagicMock,
+        mock_lm_cls: MagicMock,
+    ) -> None:
+        """When current_date is provided, it is prepended to the prompt sent to the LLM."""
+        mock_lm = MagicMock()
+        mock_lm_cls.return_value = mock_lm
+
+        mock_prediction = MagicMock()
+        mock_prediction.amount = "10.00"
+        mock_prediction.currency = "EUR"
+        mock_prediction.merchant = "Taxi"
+        mock_prediction.date = "2026-07-18"
+        mock_prediction.category = "transport"
+
+        from expense_report.adapters.out.dspy_extraction import (
+            DspyExtractionAdapter,
+        )
+
+        captured_source: list[str] = []
+
+        def capture_source(*args: Any, **kwargs: Any) -> MagicMock:
+            captured_source.append(kwargs.get("source", args[0] if args else ""))
+            return mock_prediction
+
+        with patch(
+            "dspy.ChainOfThought",
+            return_value=MagicMock(side_effect=capture_source),
+        ):
+            adapter = DspyExtractionAdapter()
+            adapter.extract(
+                FreeTextSourceView(text="10 euros for a taxi"),
+                current_date=date(2026, 7, 18),
+            )
+
+        assert len(captured_source) == 1
+        source = captured_source[0]
+        assert "2026-07-18" in source
+        assert "10 euros for a taxi" in source
+
+    @patch.dict(
+        os.environ,
+        {
+            "LLM_BASE_URL": "http://test:8080",
+            "LLM_API_KEY": "test-key",
+            "LLM_MODEL": "test-model",
+        },
+        clear=True,
+    )
+    @patch("dspy.LM")
+    @patch("dspy.configure")
+    def test_extract_text_defaults_to_today_when_no_current_date(
+        self,
+        mock_configure: MagicMock,
+        mock_lm_cls: MagicMock,
+    ) -> None:
+        """When current_date is not provided, the prompt uses today's date."""
+        mock_lm = MagicMock()
+        mock_lm_cls.return_value = mock_lm
+
+        mock_prediction = MagicMock()
+        mock_prediction.amount = "10.00"
+        mock_prediction.currency = "EUR"
+        mock_prediction.merchant = "Taxi"
+        mock_prediction.date = "2026-07-18"
+        mock_prediction.category = "transport"
+
+        from expense_report.adapters.out.dspy_extraction import (
+            DspyExtractionAdapter,
+        )
+
+        captured_source: list[str] = []
+
+        def capture_source(*args: Any, **kwargs: Any) -> MagicMock:
+            captured_source.append(kwargs.get("source", args[0] if args else ""))
+            return mock_prediction
+
+        with patch(
+            "dspy.ChainOfThought",
+            return_value=MagicMock(side_effect=capture_source),
+        ):
+            adapter = DspyExtractionAdapter()
+            adapter.extract(FreeTextSourceView(text="10 euros for a taxi"))
+
+        assert len(captured_source) == 1
+        source = captured_source[0]
+        # Should contain today's date (whatever the actual date is)
+        import datetime
+
+        today = datetime.date.today().isoformat()
+        assert today in source
+
+    @patch.dict(
+        os.environ,
+        {
+            "LLM_BASE_URL": "http://test:8080",
+            "LLM_API_KEY": "test-key",
+            "LLM_MODEL": "test-model",
+        },
+        clear=True,
+    )
+    @patch("dspy.LM")
+    @patch("dspy.configure")
+    @patch("PIL.Image.open")
+    @patch("expense_report.adapters.out.dspy_extraction.OpenAI")
+    def test_extract_image_ignores_current_date(
+        self,
+        mock_openai_cls: MagicMock,
+        mock_image_open: MagicMock,
+        mock_configure: MagicMock,
+        mock_lm_cls: MagicMock,
+    ) -> None:
+        """Receipt extraction does not use current_date — it reads dates from images."""
+        mock_lm = MagicMock()
+        mock_lm_cls.return_value = mock_lm
+
+        mock_img = MagicMock()
+        mock_image_open.return_value = mock_img
+
+        def fake_save(buf, format, quality):
+            buf.write(b"fake-jpeg-data")
+
+        mock_img.save.side_effect = fake_save
+
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.choices = [
+            MagicMock(
+                message=MagicMock(
+                    content='{"amount":"15.00","currency":"EUR","merchant":"Cafe","date":"2026-07-10","category":"food"}'
+                )
+            )
+        ]
+        mock_client.chat.completions.create.return_value = mock_response
+
+        from expense_report.adapters.out.dspy_extraction import (
+            DspyExtractionAdapter,
+        )
+
+        with patch("dspy.ChainOfThought"), patch("dspy.Predict"):
+            adapter = DspyExtractionAdapter()
+            image_bytes = b"fake-image-data"
+            adapter.extract(
+                ReceiptPagesSourceView(page_images=(image_bytes,)),
+                current_date=date(2026, 7, 18),
+            )
+
+        # Verify the prompt sent to vision does NOT contain the current date
+        create_call = mock_client.chat.completions.create
+        messages = create_call.call_args[1]["messages"]
+        content_parts = messages[0]["content"]
+        text_part = content_parts[0]["text"]
+        assert "2026-07-18" not in text_part
+
+    @patch.dict(
+        os.environ,
+        {
+            "LLM_BASE_URL": "http://test:8080",
+            "LLM_API_KEY": "test-key",
+            "LLM_MODEL": "test-model",
+        },
+        clear=True,
+    )
+    @patch("dspy.LM")
+    @patch("dspy.configure")
+    def test_extract_text_prompt_instructs_llm_to_use_current_date_as_fallback(
+        self,
+        mock_configure: MagicMock,
+        mock_lm_cls: MagicMock,
+    ) -> None:
+        """The prompt instructs the LLM to use current_date when no date is mentioned."""
+        mock_lm = MagicMock()
+        mock_lm_cls.return_value = mock_lm
+
+        mock_prediction = MagicMock()
+        mock_prediction.amount = "10.00"
+        mock_prediction.currency = "EUR"
+        mock_prediction.merchant = "Taxi"
+        mock_prediction.date = "2026-07-18"
+        mock_prediction.category = "transport"
+
+        from expense_report.adapters.out.dspy_extraction import (
+            DspyExtractionAdapter,
+        )
+
+        captured_source: list[str] = []
+
+        def capture_source(*args: Any, **kwargs: Any) -> MagicMock:
+            captured_source.append(kwargs.get("source", args[0] if args else ""))
+            return mock_prediction
+
+        with patch(
+            "dspy.ChainOfThought",
+            return_value=MagicMock(side_effect=capture_source),
+        ):
+            adapter = DspyExtractionAdapter()
+            adapter.extract(
+                FreeTextSourceView(text="10 euros for a taxi"),
+                current_date=date(2026, 7, 18),
+            )
+
+        assert len(captured_source) == 1
+        source = captured_source[0]
+        # Should contain instruction about using current date as fallback
+        assert (
+            "fallback" in source.lower() or "assume" in source.lower() or "today" in source.lower()
+        )
+
+
+class TestRefineCurrentDate:
+    """Test that refine() passes current_date into the LLM prompt."""
+
+    @patch.dict(
+        os.environ,
+        {
+            "LLM_BASE_URL": "http://test:8080",
+            "LLM_API_KEY": "test-key",
+            "LLM_MODEL": "test-model",
+        },
+        clear=True,
+    )
+    @patch("dspy.LM")
+    @patch("dspy.configure")
+    def test_refine_passes_current_date_to_prompt(
+        self,
+        mock_configure: MagicMock,
+        mock_lm_cls: MagicMock,
+    ) -> None:
+        """When current_date is provided, the refine prompt starts with it."""
+        mock_lm = MagicMock()
+        mock_lm_cls.return_value = mock_lm
+
+        mock_prediction = MagicMock()
+        mock_prediction.amount = "10.00"
+        mock_prediction.currency = "EUR"
+        mock_prediction.merchant = "Taxi"
+        mock_prediction.date = "2026-07-13"
+        mock_prediction.category = "transport"
+
+        from expense_report.adapters.out.dspy_extraction import (
+            DspyExtractionAdapter,
+        )
+
+        captured_source: list[str] = []
+
+        def capture_source(*args: Any, **kwargs: Any) -> MagicMock:
+            captured_source.append(kwargs.get("source", args[0] if args else ""))
+            return mock_prediction
+
+        with patch(
+            "dspy.ChainOfThought",
+            return_value=MagicMock(side_effect=capture_source),
+        ):
+            adapter = DspyExtractionAdapter()
+            original = ExtractionResult(
+                amount=Decimal("10.00"),
+                currency="EUR",
+                merchant=None,
+                date=None,
+                category=None,
+            )
+            adapter.refine(
+                original,
+                "actually it was last Monday",
+                current_date=date(2026, 7, 18),
+            )
+
+        assert len(captured_source) == 1
+        source = captured_source[0]
+        assert source.startswith("Current date: 2026-07-18.")
+
+    @patch.dict(
+        os.environ,
+        {
+            "LLM_BASE_URL": "http://test:8080",
+            "LLM_API_KEY": "test-key",
+            "LLM_MODEL": "test-model",
+        },
+        clear=True,
+    )
+    @patch("dspy.LM")
+    @patch("dspy.configure")
+    def test_refine_defaults_to_today_when_no_current_date(
+        self,
+        mock_configure: MagicMock,
+        mock_lm_cls: MagicMock,
+    ) -> None:
+        """When current_date is not provided, the refine prompt uses today."""
+        mock_lm = MagicMock()
+        mock_lm_cls.return_value = mock_lm
+
+        mock_prediction = MagicMock()
+        mock_prediction.amount = "10.00"
+        mock_prediction.currency = "EUR"
+        mock_prediction.merchant = "Taxi"
+        mock_prediction.date = "2026-08-26"
+        mock_prediction.category = "transport"
+
+        from expense_report.adapters.out.dspy_extraction import (
+            DspyExtractionAdapter,
+        )
+
+        captured_source: list[str] = []
+
+        def capture_source(*args: Any, **kwargs: Any) -> MagicMock:
+            captured_source.append(kwargs.get("source", args[0] if args else ""))
+            return mock_prediction
+
+        with patch(
+            "dspy.ChainOfThought",
+            return_value=MagicMock(side_effect=capture_source),
+        ):
+            adapter = DspyExtractionAdapter()
+            original = ExtractionResult(
+                amount=Decimal("10.00"),
+                currency="EUR",
+                merchant=None,
+                date=None,
+                category=None,
+            )
+            adapter.refine(original, "actually it was last Monday")
+
+        assert len(captured_source) == 1
+        source = captured_source[0]
+        assert source.startswith(f"Current date: {date.today().isoformat()}.")
