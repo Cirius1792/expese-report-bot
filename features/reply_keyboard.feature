@@ -25,6 +25,11 @@ Feature: Reply keyboard bottom action bar
     Then the bot should reply with a confirmation containing "receipt"
     And the database should still be empty
 
+  Scenario: Tapping the emoji "➕ Add" button asks for a receipt
+    When I press the keyboard button "➕ Add"
+    Then the bot should reply with a confirmation containing "receipt"
+    And the database should still be empty
+
   Scenario: Tapping "List" shows the list view
     When I press the keyboard button "List"
     Then the bot should reply with a confirmation containing "no recorded expenses"

@@ -9,18 +9,20 @@
 The bot shows a **custom reply keyboard** (Telegram `ReplyKeyboardMarkup`) — a
 persistent bar of action buttons below the chat input field, like TrackBot's
 "➕ Traccia / ☰ Lista / ? Aiuto" grid. Tapping a button sends its label as a
-plain chat message (pretty chat history, no `/command` clutter), and the bot
+plain chat message: **Telegram delivers the button text verbatim, emoji
+included**, so the emoji is part of the routed string. For convenience the
+bare word (emoji stripped) also routes to the same handler, and the bot
 routes the label to the matching existing command handler.
 
 ### Button set (v1, English labels)
 
-| Row | Button | Label sent | Routes to |
-|-----|--------|-----------|-----------|
-| 1 | ➕ Add | `Add` | `/add` (hint prompt) |
-| 1 | ☰ List | `List` | `/list` (month view + inline keyboard) |
-| 1 | 📄 Report | `Report` | `/report` (CSV export) |
-| 2 | ❓ Help | `Help` | `/start` (welcome message) |
-| 2 | 🗑 Remove | `Remove` | `/remove` (hint prompt) |
+| Row | Button | Tapping sends | Bare word | Routes to |
+|-----|--------|---------------|-----------|-----------|
+| 1 | ➕ Add | `➕ Add` | `Add` | `/add` (hint prompt) |
+| 1 | ☰ List | `☰ List` | `List` | `/list` (month view + inline keyboard) |
+| 1 | 📄 Report | `📄 Report` | `Report` | `/report` (CSV export) |
+| 2 | ❓ Help | `❓ Help` | `Help` | `/start` (welcome message) |
+| 2 | 🗑 Remove | `🗑 Remove` | `Remove` | `/remove` (hint prompt) |
 
 `/delete` is intentionally NOT in the bar (it requires an argument; it stays
 reachable via the `/remove` hint and the welcome text).
@@ -62,11 +64,15 @@ unless noted.
    `register_handlers` constructs the command handlers once (list/report via
    existing factories; start/add/remove existing functions) and passes a
    `dict[str, handler]` label→handler map into `_make_text_handler`.
+   The map is built by `build_label_handlers(...)`, the single source of truth
+   shared with the tests; it registers both the exact button text (`➕ Add`)
+   and its bare word (`Add`) for each button.
    The text handler checks an **exact, case-sensitive full-text match**
    against the map *before* calling the recording port; on a match it invokes
    the mapped handler with the same `Update`; on a miss it proceeds to
    `expense_recording.record(...)` exactly as today.
-   Labels: `Add`, `List`, `Report`, `Help`, `Remove`.
+   Aliases: `➕ Add`/`Add`, `☰ List`/`List`, `📄 Report`/`Report`,
+   `❓ Help`/`Help`, `🗑 Remove`/`Remove`.
 4. **Attachment on recorded confirmations** — failing test:
    `_reply_with_recorded_expense` and `_reply_with_resolved_correction`
    include `reply_markup=REPLY_KEYBOARD` (inline delete button unchanged —
@@ -146,8 +152,10 @@ Files touched:
 
 - Pytest: markup shape; `/start` attachment; recorded-confirmation
   attachment; one routing test per label (assert same port calls and reply
-  text as the `/command` path); free-text not routed (incl. lowercase `list`);
-  correction-pending state preserved after label press.
+  text as the `/command` path); integrity guard that every `KeyboardButton`
+  text is a routing key; emoji-label and bare-word routing; free-text not
+  routed (incl. lowercase `list`); correction-pending state preserved after
+  label press.
 - Behave: `features/reply_keyboard.feature`.
 - Full gate output pasted (ruff format/check, ty, pytest, behave).
 

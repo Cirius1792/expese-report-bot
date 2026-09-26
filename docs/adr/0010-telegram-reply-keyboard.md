@@ -22,6 +22,12 @@ message cannot carry both an `InlineKeyboardMarkup` and a
   the input field to continue.").
 - On the `/start`/Help path the reply keyboard is attached directly to the
   welcome message, since nothing competes for its `reply_markup`.
+- **Label routing keys are the exact button texts.** Telegram delivers a
+  tapped button's text verbatim (emoji included), so `"➕ Add"` — not
+  `"Add"` — is what arrives. The bare word is additionally registered so a
+  user who types `Add` gets the same behavior. Both are produced by
+  `build_label_handlers(...)`, the single source of truth shared with the
+  tests, so the routing keys cannot drift from the keyboard.
 
 ## Considered Alternatives
 

@@ -64,12 +64,19 @@ Remove) or use the commands:
 /remove - How to delete an expense"""
 
 # Persistent reply keyboard — TrackBot-style bottom action bar (issue #14).
-# Tapping a button sends its label as a plain chat message; the text handler
-# routes the exact label to the matching command handler.
+# Tapping a button sends its label as a plain chat message: Telegram delivers
+# the button text verbatim, emoji included. Both the exact label and its bare
+# word are routed to the matching command handler (see build_label_handlers).
+BUTTON_ADD = "➕ Add"
+BUTTON_LIST = "☰ List"
+BUTTON_REPORT = "📄 Report"
+BUTTON_HELP = "❓ Help"
+BUTTON_REMOVE = "🗑 Remove"
+
 REPLY_KEYBOARD: ReplyKeyboardMarkup = ReplyKeyboardMarkup(
     [
-        [KeyboardButton("➕ Add"), KeyboardButton("☰ List"), KeyboardButton("📄 Report")],
-        [KeyboardButton("❓ Help"), KeyboardButton("🗑 Remove")],
+        [KeyboardButton(BUTTON_ADD), KeyboardButton(BUTTON_LIST), KeyboardButton(BUTTON_REPORT)],
+        [KeyboardButton(BUTTON_HELP), KeyboardButton(BUTTON_REMOVE)],
     ],
     resize_keyboard=True,
     is_persistent=True,
@@ -82,6 +89,39 @@ REPLY_KEYBOARD_HINT = "Tap the buttons below the input field to continue."
 
 # A PTB handler coroutine: (update, context) -> None.
 HandlerFn = Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[None]]
+
+
+def build_label_handlers(
+    *,
+    start_handler: HandlerFn,
+    report_handler: HandlerFn,
+    list_handler: HandlerFn,
+    add_handler: HandlerFn,
+    remove_handler: HandlerFn,
+) -> dict[str, HandlerFn]:
+    """Map reply-keyboard labels to command handlers (issue #14).
+
+    Single source of truth shared by ``register_handlers`` and the tests, so the
+    routing keys can never drift from the button texts. Both the exact button
+    label (e.g. ``"➕ Add"``) and its bare word (``"Add"``) are registered, so a
+    tap and a typed word route to the same handler.
+    """
+
+    def aliases(label: str) -> tuple[str, ...]:
+        return (label, label.split()[-1])
+
+    mapping: dict[str, HandlerFn] = {}
+    for label, handler in (
+        (BUTTON_ADD, add_handler),
+        (BUTTON_LIST, list_handler),
+        (BUTTON_REPORT, report_handler),
+        (BUTTON_HELP, start_handler),
+        (BUTTON_REMOVE, remove_handler),
+    ):
+        for alias in aliases(label):
+            mapping[alias] = handler
+    return mapping
+
 
 # Hint-only prompts for the /add and /remove menu commands (issue #10).
 # They never open a wizard and never touch the recording/query ports.
@@ -451,13 +491,13 @@ def register_handlers(
     add_handler = _handle_add
     remove_handler = _handle_remove
 
-    label_handlers: dict[str, HandlerFn] = {
-        "Add": add_handler,
-        "List": list_handler,
-        "Report": report_handler,
-        "Help": start_handler,
-        "Remove": remove_handler,
-    }
+    label_handlers = build_label_handlers(
+        start_handler=start_handler,
+        report_handler=report_handler,
+        list_handler=list_handler,
+        add_handler=add_handler,
+        remove_handler=remove_handler,
+    )
 
     app.add_handler(CommandHandler("start", start_handler))
     app.add_handler(CommandHandler("report", report_handler))

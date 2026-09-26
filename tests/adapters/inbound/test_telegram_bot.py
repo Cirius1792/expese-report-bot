@@ -576,24 +576,6 @@ class TestTextHandler:
 class TestTextHandlerLabelRouting:
     """Tests for reply-keyboard label → command routing (issue #14)."""
 
-    def _routing_map(self, queries: MagicMock) -> dict[str, object]:
-        """Build the label→handler map exactly as register_handlers does."""
-        from expense_report.adapters.inbound.telegram_bot import (
-            _handle_add,
-            _handle_remove,
-            _handle_start,
-            _make_list_handler,
-            _make_report_handler,
-        )
-
-        return {
-            "Add": _handle_add,
-            "List": _make_list_handler(queries),
-            "Report": _make_report_handler(queries),
-            "Help": _handle_start,
-            "Remove": _handle_remove,
-        }
-
     def test_label_add_routes_to_add_handler(self) -> None:
         """Text 'Add' invokes the /add handler and never the recording port."""
         from expense_report.adapters.inbound.telegram_bot import (
@@ -770,6 +752,88 @@ class TestTextHandlerLabelRouting:
         asyncio.run(handler(update, MagicMock()))
 
         recording.record.assert_not_called()
+
+
+class TestLabelRoutingIntegrity:
+    """Guard tests: the routing map must match the real button texts (issue #14).
+
+    Telegram delivers a tapped button's text verbatim (emoji included), so the
+    routing keys must be the exact button labels. These tests fail if the map
+    and the keyboard ever drift apart - the gap that let the emoji bug through.
+    """
+
+    def test_register_handlers_routes_every_button_text(self) -> None:
+        """Every KeyboardButton text is a routing key in the registered map."""
+        from expense_report.adapters.inbound import telegram_bot as tb
+
+        captured: dict[str, dict[str, object]] = {}
+
+        def fake_make_text_handler(recording, label_handlers):
+            captured["map"] = label_handlers
+            return MagicMock()
+
+        with patch.object(tb, "_make_text_handler", fake_make_text_handler):
+            tb.register_handlers(MagicMock(), MagicMock(), MagicMock())
+
+        routing_map = captured["map"]
+        button_texts = {button.text for row in tb.REPLY_KEYBOARD.keyboard for button in row}
+        assert button_texts <= set(routing_map), (
+            f"Buttons not routed: {button_texts - set(routing_map)}"
+        )
+
+    def test_button_tap_routes_to_command_handler(self) -> None:
+        """A tap on '➕ Add' runs /add and never reaches the recording port."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            ADD_EXPENSE_PROMPT,
+            _handle_add,
+            _handle_remove,
+            _handle_start,
+            _make_text_handler,
+            build_label_handlers,
+        )
+
+        recording = MagicMock()
+        label_map = build_label_handlers(
+            start_handler=_handle_start,
+            report_handler=MagicMock(),
+            list_handler=MagicMock(),
+            add_handler=_handle_add,
+            remove_handler=_handle_remove,
+        )
+        handler = _make_text_handler(recording, label_map)
+        update = _make_update(text="➕ Add")
+
+        asyncio.run(handler(update, MagicMock()))
+
+        recording.record.assert_not_called()
+        update.effective_message.reply_text.assert_awaited_once_with(ADD_EXPENSE_PROMPT)
+
+    def test_bare_word_also_routes_to_command_handler(self) -> None:
+        """Typing the bare word 'Add' routes to the same /add handler."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            ADD_EXPENSE_PROMPT,
+            _handle_add,
+            _handle_remove,
+            _handle_start,
+            _make_text_handler,
+            build_label_handlers,
+        )
+
+        recording = MagicMock()
+        label_map = build_label_handlers(
+            start_handler=_handle_start,
+            report_handler=MagicMock(),
+            list_handler=MagicMock(),
+            add_handler=_handle_add,
+            remove_handler=_handle_remove,
+        )
+        handler = _make_text_handler(recording, label_map)
+        update = _make_update(text="Add")
+
+        asyncio.run(handler(update, MagicMock()))
+
+        recording.record.assert_not_called()
+        update.effective_message.reply_text.assert_awaited_once_with(ADD_EXPENSE_PROMPT)
 
 
 class TestSaveConfirmation:

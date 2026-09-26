@@ -12,22 +12,23 @@ from features.steps.common_steps import make_telegram_update
 
 
 def _build_label_map(context: Any) -> dict[str, Any]:
-    """Build the label→handler map exactly as register_handlers does (issue #14)."""
+    """Build the label→handler map via the production builder (issue #14)."""
     from expense_report.adapters.inbound.telegram_bot import (
         _handle_add,
         _handle_remove,
         _handle_start,
         _make_list_handler,
         _make_report_handler,
+        build_label_handlers,
     )
 
-    return {
-        "Add": _handle_add,
-        "List": _make_list_handler(context.expense_queries),
-        "Report": _make_report_handler(context.expense_queries),
-        "Help": _handle_start,
-        "Remove": _handle_remove,
-    }
+    return build_label_handlers(
+        start_handler=_handle_start,
+        report_handler=_make_report_handler(context.expense_queries),
+        list_handler=_make_list_handler(context.expense_queries),
+        add_handler=_handle_add,
+        remove_handler=_handle_remove,
+    )
 
 
 @when('I press the keyboard button "{label}"')
