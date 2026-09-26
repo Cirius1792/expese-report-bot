@@ -196,7 +196,7 @@ def _execute_text_handler_with_refine(
             context.repository,
             context.correction_store,
         )
-        handler = _make_text_handler(recording)
+        handler = _make_text_handler(recording, {})
 
         text = getattr(context, "correction_text", "correction")
         update = make_telegram_update(context, text=text)
@@ -234,7 +234,7 @@ def step_reply_another_correction(context: Any) -> None:
         context.repository,
         context.correction_store,
     )
-    handler = _make_text_handler(recording)
+    handler = _make_text_handler(recording, {})
 
     update = make_telegram_update(context, text="another correction")
     ctx = MagicMock()

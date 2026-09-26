@@ -150,12 +150,22 @@ def make_telegram_context(context: Any) -> MagicMock:
 
 
 def get_last_reply(context: Any) -> str:
-    """Get the last reply text sent by the bot."""
+    """Get the last content reply sent by the bot.
+
+    Confirmation flows send the summary first and then a lightweight
+    follow-up that only carries the persistent reply keyboard (issue #14);
+    that follow-up is transport scaffolding, so it is skipped here.
+    """
     if not context.telegram_updates:
         return ""
     update = context.telegram_updates[-1]
     if update.effective_message.reply_text.await_count > 0:
-        return update.effective_message.reply_text.call_args[0][0]
+        from expense_report.adapters.inbound.telegram_bot import REPLY_KEYBOARD_HINT
+
+        replies = [call.args[0] for call in update.effective_message.reply_text.call_args_list]
+        while replies and replies[-1] == REPLY_KEYBOARD_HINT:
+            replies.pop()
+        return replies[-1] if replies else ""
     return ""
 
 

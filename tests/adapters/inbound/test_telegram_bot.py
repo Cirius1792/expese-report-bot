@@ -74,8 +74,9 @@ class TestStartHandler:
     """Tests for /start command handler."""
 
     def test_sends_welcome_message(self) -> None:
-        """Handler replies with the welcome message."""
+        """Handler replies with the welcome message and the reply keyboard."""
         from expense_report.adapters.inbound.telegram_bot import (
+            REPLY_KEYBOARD,
             WELCOME_MESSAGE,
             _handle_start,
         )
@@ -85,7 +86,9 @@ class TestStartHandler:
 
         asyncio.run(_handle_start(update, context))
 
-        update.effective_message.reply_text.assert_awaited_once_with(WELCOME_MESSAGE)
+        update.effective_message.reply_text.assert_awaited_once_with(
+            WELCOME_MESSAGE, reply_markup=REPLY_KEYBOARD
+        )
 
     def test_no_message_does_nothing(self) -> None:
         """When effective_message is None, handler returns silently."""
@@ -110,6 +113,39 @@ class TestStartHandler:
 
         for command in ("/list", "/report", "/add", "/remove"):
             assert command in WELCOME_MESSAGE
+
+    def test_welcome_message_mentions_bottom_bar(self) -> None:
+        """WELCOME_MESSAGE tells users about the buttons below the input field."""
+        from expense_report.adapters.inbound.telegram_bot import WELCOME_MESSAGE
+
+        assert "buttons below the input field" in WELCOME_MESSAGE
+
+
+class TestReplyKeyboard:
+    """Tests for the persistent reply keyboard markup (issue #14)."""
+
+    def test_grid_structure_labels_and_order(self) -> None:
+        """Two rows: Add/List/Report then Help/Remove, in that order."""
+        from expense_report.adapters.inbound.telegram_bot import REPLY_KEYBOARD
+
+        rows = [[button.text for button in row] for row in REPLY_KEYBOARD.keyboard]
+        assert rows == [
+            ["➕ Add", "☰ List", "📄 Report"],
+            ["❓ Help", "🗑 Remove"],
+        ]
+
+    def test_resize_keyboard_and_persistence_flags(self) -> None:
+        """Input field is resized and the bar is persistent."""
+        from expense_report.adapters.inbound.telegram_bot import REPLY_KEYBOARD
+
+        assert REPLY_KEYBOARD.resize_keyboard is True
+        assert REPLY_KEYBOARD.is_persistent is True
+
+    def test_one_time_keyboard_is_disabled(self) -> None:
+        """The bar is not dismissed after first use."""
+        from expense_report.adapters.inbound.telegram_bot import REPLY_KEYBOARD
+
+        assert REPLY_KEYBOARD.one_time_keyboard is False
 
 
 class TestAddHandler:
@@ -272,7 +308,8 @@ class TestPhotoHandler:
             )
         )
 
-        reply_text = update.effective_message.reply_text.call_args[0][0]
+        # First reply: summary (followed by the reply-keyboard hint message)
+        reply_text = update.effective_message.reply_text.call_args_list[0][0][0]
         assert "✅ Saved." in reply_text
         assert "42.50" in reply_text
         assert "EUR" in reply_text
@@ -375,7 +412,8 @@ class TestPdfHandler:
             )
         )
 
-        reply_text = update.effective_message.reply_text.call_args[0][0]
+        # First reply: summary (followed by the reply-keyboard hint message)
+        reply_text = update.effective_message.reply_text.call_args_list[0][0][0]
         assert "✅ Saved." in reply_text
         assert "99.00" in reply_text
         assert "EUR" in reply_text
@@ -481,7 +519,7 @@ class TestTextHandler:
         )
         recording = MagicMock()
         recording.record.return_value = ExpenseRecorded(saved, result)
-        handler = _make_text_handler(recording)
+        handler = _make_text_handler(recording, {})
         update = _make_update(text="coffee 12.50 usd")
 
         asyncio.run(handler(update, MagicMock()))
@@ -495,7 +533,7 @@ class TestTextHandler:
                 receipt_photo_id=None,
             )
         )
-        reply_text = update.effective_message.reply_text.call_args[0][0]
+        reply_text = update.effective_message.reply_text.call_args_list[0][0][0]
         assert reply_text == (
             "📄 *Extracted expense:*\n"
             "Expense #7\n"
@@ -521,7 +559,7 @@ class TestTextHandler:
         )
         recording = MagicMock()
         recording.record.return_value = CorrectionOpened(partial)
-        handler = _make_text_handler(recording)
+        handler = _make_text_handler(recording, {})
         update = _make_update(text="something")
 
         asyncio.run(handler(update, MagicMock()))
@@ -533,6 +571,269 @@ class TestTextHandler:
             "I extracted partial information. Please reply with the"
             " missing details: amount, currency, merchant, date"
         )
+
+
+class TestTextHandlerLabelRouting:
+    """Tests for reply-keyboard label → command routing (issue #14)."""
+
+    def test_label_add_routes_to_add_handler(self) -> None:
+        """Text 'Add' invokes the /add handler and never the recording port."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            ADD_EXPENSE_PROMPT,
+            _handle_add,
+            _make_text_handler,
+        )
+
+        recording = MagicMock()
+        handler = _make_text_handler(recording, {"Add": _handle_add})
+        update = _make_update(text="Add")
+
+        asyncio.run(handler(update, MagicMock()))
+
+        recording.record.assert_not_called()
+        update.effective_message.reply_text.assert_awaited_once_with(ADD_EXPENSE_PROMPT)
+
+    def test_label_list_routes_to_list_handler(self) -> None:
+        """Text 'List' runs the /list flow (same port calls as /list)."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            _make_list_handler,
+            _make_text_handler,
+        )
+
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={2026: {7}}, active_year=2026, active_month=7
+        )
+        queries.get_month_expenses.return_value = []
+
+        recording = MagicMock()
+        handler = _make_text_handler(recording, {"List": _make_list_handler(queries)})
+        update = _make_update(text="List")
+
+        asyncio.run(handler(update, MagicMock()))
+
+        recording.record.assert_not_called()
+        queries.discover_periods.assert_called_once_with(12345)
+        reply = update.effective_message.reply_text.call_args[0][0]
+        assert "July 2026" in reply
+
+    def test_label_report_routes_to_report_handler(self) -> None:
+        """Text 'Report' runs the /report CSV flow."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            _make_report_handler,
+            _make_text_handler,
+        )
+
+        queries = _make_queries_mock()
+        queries.generate_csv_report.return_value = (
+            "date,merchant,category,amount,currency\n2026-07-01,Shop A,food,10.00,EUR\n"
+        )
+
+        recording = MagicMock()
+        handler = _make_text_handler(recording, {"Report": _make_report_handler(queries)})
+        update = _make_update(text="Report")
+
+        with patch("expense_report.adapters.inbound.telegram_bot.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2026, 7, 15, 12, 0, 0)
+            asyncio.run(handler(update, MagicMock()))
+
+        recording.record.assert_not_called()
+        queries.generate_csv_report.assert_called_once_with(12345, 2026, 7)
+        update.effective_message.reply_document.assert_awaited_once()
+
+    def test_label_help_routes_to_start_handler(self) -> None:
+        """Text 'Help' replies with the welcome message and the reply keyboard."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            REPLY_KEYBOARD,
+            WELCOME_MESSAGE,
+            _handle_start,
+            _make_text_handler,
+        )
+
+        handler = _make_text_handler(MagicMock(), {"Help": _handle_start})
+        update = _make_update(text="Help")
+
+        asyncio.run(handler(update, MagicMock()))
+
+        update.effective_message.reply_text.assert_awaited_once_with(
+            WELCOME_MESSAGE, reply_markup=REPLY_KEYBOARD
+        )
+
+    def test_label_remove_routes_to_remove_handler(self) -> None:
+        """Text 'Remove' invokes the /remove handler and never the recording port."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            REMOVE_EXPENSE_PROMPT,
+            _handle_remove,
+            _make_text_handler,
+        )
+
+        recording = MagicMock()
+        handler = _make_text_handler(recording, {"Remove": _handle_remove})
+        update = _make_update(text="Remove")
+
+        asyncio.run(handler(update, MagicMock()))
+
+        recording.record.assert_not_called()
+        update.effective_message.reply_text.assert_awaited_once_with(REMOVE_EXPENSE_PROMPT)
+
+    def test_lowercase_list_is_not_routed(self) -> None:
+        """Text 'list' (case differs) goes to the recording port as free text."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            _make_list_handler,
+            _make_text_handler,
+        )
+        from expense_report.ports.expense_recording import CorrectionLimitReached
+
+        recording = MagicMock()
+        recording.record.return_value = CorrectionLimitReached()
+        queries = _make_queries_mock()
+        handler = _make_text_handler(recording, {"List": _make_list_handler(queries)})
+        update = _make_update(text="list")
+
+        asyncio.run(handler(update, MagicMock()))
+
+        recording.record.assert_called_once()
+        assert recording.record.call_args[0][0].source == "list"
+
+    def test_uppercase_list_is_not_routed(self) -> None:
+        """Text 'LIST' (case differs) goes to the recording port as free text."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            _make_list_handler,
+            _make_text_handler,
+        )
+        from expense_report.ports.expense_recording import CorrectionLimitReached
+
+        recording = MagicMock()
+        recording.record.return_value = CorrectionLimitReached()
+        queries = _make_queries_mock()
+        handler = _make_text_handler(recording, {"List": _make_list_handler(queries)})
+        update = _make_update(text="LIST")
+
+        asyncio.run(handler(update, MagicMock()))
+
+        recording.record.assert_called_once()
+        assert recording.record.call_args[0][0].source == "LIST"
+
+    def test_text_containing_label_is_not_routed(self) -> None:
+        """Text containing a label but not exactly equal is free text."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            _make_list_handler,
+            _make_text_handler,
+        )
+        from expense_report.ports.expense_recording import CorrectionLimitReached
+
+        recording = MagicMock()
+        recording.record.return_value = CorrectionLimitReached()
+        queries = _make_queries_mock()
+        handler = _make_text_handler(recording, {"List": _make_list_handler(queries)})
+        update = _make_update(text="show me the List")
+
+        asyncio.run(handler(update, MagicMock()))
+
+        recording.record.assert_called_once()
+        assert recording.record.call_args[0][0].source == "show me the List"
+
+    def test_label_press_does_not_touch_recording_port(self) -> None:
+        """A label pressed mid-correction never reaches the recording port,
+        so the pending correction state is untouched."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            _make_list_handler,
+            _make_text_handler,
+        )
+
+        queries = _make_queries_mock()
+        queries.discover_periods.return_value = PeriodSummary(
+            periods={}, active_year=2026, active_month=7
+        )
+        recording = MagicMock()
+        handler = _make_text_handler(recording, {"List": _make_list_handler(queries)})
+        update = _make_update(text="List")
+
+        asyncio.run(handler(update, MagicMock()))
+
+        recording.record.assert_not_called()
+
+
+class TestLabelRoutingIntegrity:
+    """Guard tests: the routing map must match the real button texts (issue #14).
+
+    Telegram delivers a tapped button's text verbatim (emoji included), so the
+    routing keys must be the exact button labels. These tests fail if the map
+    and the keyboard ever drift apart - the gap that let the emoji bug through.
+    """
+
+    def test_register_handlers_routes_every_button_text(self) -> None:
+        """Every KeyboardButton text is a routing key in the registered map."""
+        from expense_report.adapters.inbound import telegram_bot as tb
+
+        captured: dict[str, dict[str, object]] = {}
+
+        def fake_make_text_handler(recording, label_handlers):
+            captured["map"] = label_handlers
+            return MagicMock()
+
+        with patch.object(tb, "_make_text_handler", fake_make_text_handler):
+            tb.register_handlers(MagicMock(), MagicMock(), MagicMock())
+
+        routing_map = captured["map"]
+        button_texts = {button.text for row in tb.REPLY_KEYBOARD.keyboard for button in row}
+        assert button_texts <= set(routing_map), (
+            f"Buttons not routed: {button_texts - set(routing_map)}"
+        )
+
+    def test_button_tap_routes_to_command_handler(self) -> None:
+        """A tap on '➕ Add' runs /add and never reaches the recording port."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            ADD_EXPENSE_PROMPT,
+            _handle_add,
+            _handle_remove,
+            _handle_start,
+            _make_text_handler,
+            build_label_handlers,
+        )
+
+        recording = MagicMock()
+        label_map = build_label_handlers(
+            start_handler=_handle_start,
+            report_handler=MagicMock(),
+            list_handler=MagicMock(),
+            add_handler=_handle_add,
+            remove_handler=_handle_remove,
+        )
+        handler = _make_text_handler(recording, label_map)
+        update = _make_update(text="➕ Add")
+
+        asyncio.run(handler(update, MagicMock()))
+
+        recording.record.assert_not_called()
+        update.effective_message.reply_text.assert_awaited_once_with(ADD_EXPENSE_PROMPT)
+
+    def test_bare_word_also_routes_to_command_handler(self) -> None:
+        """Typing the bare word 'Add' routes to the same /add handler."""
+        from expense_report.adapters.inbound.telegram_bot import (
+            ADD_EXPENSE_PROMPT,
+            _handle_add,
+            _handle_remove,
+            _handle_start,
+            _make_text_handler,
+            build_label_handlers,
+        )
+
+        recording = MagicMock()
+        label_map = build_label_handlers(
+            start_handler=_handle_start,
+            report_handler=MagicMock(),
+            list_handler=MagicMock(),
+            add_handler=_handle_add,
+            remove_handler=_handle_remove,
+        )
+        handler = _make_text_handler(recording, label_map)
+        update = _make_update(text="Add")
+
+        asyncio.run(handler(update, MagicMock()))
+
+        recording.record.assert_not_called()
+        update.effective_message.reply_text.assert_awaited_once_with(ADD_EXPENSE_PROMPT)
 
 
 class TestSaveConfirmation:
@@ -570,19 +871,25 @@ class TestSaveConfirmation:
 
         asyncio.run(handler(update, context))
 
-        # Verify reply_text was called with reply_markup containing delete button
-        call_kwargs = update.effective_message.reply_text.call_args[1]
-        reply = update.effective_message.reply_text.call_args[0][0]
+        # First reply: summary + inline delete button (unchanged)
+        first_call = update.effective_message.reply_text.call_args_list[0]
+        reply = first_call[0][0]
         assert "Expense #42" in reply
         assert "✅ Saved." in reply
 
         # Check button
-        markup = call_kwargs.get("reply_markup")
+        markup = first_call[1].get("reply_markup")
         assert markup is not None
         buttons = markup.inline_keyboard
         assert len(buttons) == 1
         assert buttons[0][0].text == "🗑️ Delete"
         assert buttons[0][0].callback_data == "delete:42"
+
+        # Second reply: persistent reply keyboard attached (issue #14)
+        from expense_report.adapters.inbound.telegram_bot import REPLY_KEYBOARD
+
+        second_call = update.effective_message.reply_text.call_args_list[1]
+        assert second_call[1].get("reply_markup") is REPLY_KEYBOARD
 
 
 class TestReportHandler:
@@ -793,7 +1100,7 @@ class TestCorrectionFlow:
         )
         recording = MagicMock()
         recording.record.return_value = CorrectionResolved(saved_expense, result)
-        handler = _make_text_handler(recording)
+        handler = _make_text_handler(recording, {})
         update = _make_update(text="Cafe EUR 15")
 
         asyncio.run(handler(update, MagicMock()))
@@ -807,10 +1114,16 @@ class TestCorrectionFlow:
                 receipt_photo_id=None,
             )
         )
-        reply_text = update.effective_message.reply_text.call_args[0][0]
+        reply_text = update.effective_message.reply_text.call_args_list[0][0][0]
         assert "Updated and saved" in reply_text
         assert "Expense #42" in reply_text
         assert "Cafe" in reply_text
+
+        # Second reply: persistent reply keyboard attached (issue #14)
+        from expense_report.adapters.inbound.telegram_bot import REPLY_KEYBOARD
+
+        second_call = update.effective_message.reply_text.call_args_list[1]
+        assert second_call[1].get("reply_markup") is REPLY_KEYBOARD
 
     def test_text_handler_renders_correction_still_incomplete(self) -> None:
         """CorrectionStillIncomplete → renders missing-fields prompt."""
@@ -830,7 +1143,7 @@ class TestCorrectionFlow:
         )
         recording = MagicMock()
         recording.record.return_value = CorrectionStillIncomplete(result, attempt_count=2)
-        handler = _make_text_handler(recording)
+        handler = _make_text_handler(recording, {})
         update = _make_update(text="Cafe")
 
         asyncio.run(handler(update, MagicMock()))
@@ -851,7 +1164,7 @@ class TestCorrectionFlow:
 
         recording = MagicMock()
         recording.record.return_value = CorrectionLimitReached()
-        handler = _make_text_handler(recording)
+        handler = _make_text_handler(recording, {})
         update = _make_update(text="final attempt")
 
         asyncio.run(handler(update, MagicMock()))

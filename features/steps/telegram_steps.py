@@ -204,7 +204,7 @@ def step_send_text_message(context: Any, text: str) -> None:
             context.repository,
             context.correction_store,
         )
-        handler = _make_text_handler(recording)
+        handler = _make_text_handler(recording, {})
         update = make_telegram_update(context, text=text)
         ctx = MagicMock()
 

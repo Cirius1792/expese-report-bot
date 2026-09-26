@@ -344,7 +344,7 @@ class TestTextHandlerLogging:
             _make_text_handler,
         )
 
-        handler = _make_text_handler(recording)
+        handler = _make_text_handler(recording, {})
         source_text = "coffee 12.50 usd"
         update = _make_update(user_id=12345, text=source_text)
         context = MagicMock()
@@ -397,7 +397,7 @@ class TestTextHandlerLogging:
             _make_text_handler,
         )
 
-        handler = _make_text_handler(recording)
+        handler = _make_text_handler(recording, {})
         source_text = "coffee 12.50 usd"
         update = _make_update(user_id=12345, text=source_text)
         context = MagicMock()
@@ -425,7 +425,7 @@ class TestTextHandlerLogging:
 
         recording = MagicMock()
 
-        handler = _make_text_handler(recording)
+        handler = _make_text_handler(recording, {})
         update = _make_update(effective_message=False)
         context = MagicMock()
 

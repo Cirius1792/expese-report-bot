@@ -202,12 +202,18 @@ def step_buttons_exact_set(context: Any, labels: str) -> None:
     Works for both /list (context._list_markup) and save confirmations
     (last telegram update's reply_markup).
     """
-    # Try list markup first, then fall back to last reply markup
+    # Try list markup first, then fall back to the last reply that carries an
+    # inline keyboard. Confirmation summaries are followed by a lightweight
+    # reply that only carries the reply keyboard (issue #14), so scan
+    # replies in reverse for the one with an inline keyboard.
     markup = getattr(context, "_list_markup", None)
     if markup is None and context.telegram_updates:
         update = context.telegram_updates[-1]
-        if update.effective_message.reply_text.call_count > 0:
-            markup = update.effective_message.reply_text.call_args[1].get("reply_markup")
+        for call in reversed(update.effective_message.reply_text.call_args_list):
+            candidate = call.kwargs.get("reply_markup")
+            if candidate is not None and getattr(candidate, "inline_keyboard", None) is not None:
+                markup = candidate
+                break
     all_labels = _get_all_button_labels(markup)
     expected = [label.strip() for label in labels.split(",")]
     assert Counter(all_labels) == Counter(expected), (

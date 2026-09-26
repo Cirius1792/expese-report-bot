@@ -27,6 +27,9 @@ Thumbs.db
 .ruff_cache/
 .worktrees/
 
+# Generated BDD output (behave `format = pretty`)
+pretty.output
+
 # Docker runtime
 .env.deploy
 data/
