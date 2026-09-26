@@ -7,12 +7,20 @@ Uses dependency injection for ExpenseRecordingPort and ExpenseRepositoryPort.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from decimal import Decimal
 from html import escape as _html_escape
 from io import BytesIO
 
-from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    BotCommand,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    Update,
+)
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -47,12 +55,33 @@ WELCOME_MESSAGE = """Welcome! I'm your expense report bot.
 Send me a photo of a receipt, a PDF receipt (up to 5 pages), or
 describe your expense like "lunch 15 eur".
 
-Commands:
+Tap the buttons below the input field (Add, List, Report, Help,
+Remove) or use the commands:
 /start - Show this message
 /list - Browse your expenses by month
 /report - Get your monthly expense report as CSV
 /add - How to track a new expense
 /remove - How to delete an expense"""
+
+# Persistent reply keyboard — TrackBot-style bottom action bar (issue #14).
+# Tapping a button sends its label as a plain chat message; the text handler
+# routes the exact label to the matching command handler.
+REPLY_KEYBOARD: ReplyKeyboardMarkup = ReplyKeyboardMarkup(
+    [
+        [KeyboardButton("➕ Add"), KeyboardButton("☰ List"), KeyboardButton("📄 Report")],
+        [KeyboardButton("❓ Help"), KeyboardButton("🗑 Remove")],
+    ],
+    resize_keyboard=True,
+    is_persistent=True,
+)
+
+# The Bot API attaches at most one reply_markup per message, so the reply
+# keyboard rides on a lightweight follow-up message after the confirmation
+# that carries the inline delete keyboard (ADR 0010).
+REPLY_KEYBOARD_HINT = "Tap the buttons below the input field to continue."
+
+# A PTB handler coroutine: (update, context) -> None.
+HandlerFn = Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[None]]
 
 # Hint-only prompts for the /add and /remove menu commands (issue #10).
 # They never open a wizard and never touch the recording/query ports.
@@ -414,12 +443,28 @@ def register_handlers(
     expense_queries: ExpenseQueryPort,
 ) -> None:
     """Register all bot command and message handlers."""
-    app.add_handler(CommandHandler("start", _handle_start))
-    app.add_handler(CommandHandler("report", _make_report_handler(expense_queries)))
-    app.add_handler(CommandHandler("list", _make_list_handler(expense_queries)))
+    # Command handlers are constructed once and shared between the native
+    # command menu and the reply-keyboard label routing (issue #14).
+    start_handler = _handle_start
+    report_handler = _make_report_handler(expense_queries)
+    list_handler = _make_list_handler(expense_queries)
+    add_handler = _handle_add
+    remove_handler = _handle_remove
+
+    label_handlers: dict[str, HandlerFn] = {
+        "Add": add_handler,
+        "List": list_handler,
+        "Report": report_handler,
+        "Help": start_handler,
+        "Remove": remove_handler,
+    }
+
+    app.add_handler(CommandHandler("start", start_handler))
+    app.add_handler(CommandHandler("report", report_handler))
+    app.add_handler(CommandHandler("list", list_handler))
     app.add_handler(CommandHandler("delete", _make_delete_handler(expense_queries)))
-    app.add_handler(CommandHandler("add", _handle_add))
-    app.add_handler(CommandHandler("remove", _handle_remove))
+    app.add_handler(CommandHandler("add", add_handler))
+    app.add_handler(CommandHandler("remove", remove_handler))
     app.add_handler(
         CallbackQueryHandler(
             _make_list_callback_handler(expense_queries),
@@ -447,7 +492,7 @@ def register_handlers(
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
-            _make_text_handler(expense_recording),
+            _make_text_handler(expense_recording, label_handlers),
         )
     )
 
@@ -505,12 +550,12 @@ def register_global_error_handler(app: Application) -> None:
 
 
 async def _handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /start command — send welcome message."""
+    """Handle /start command — send welcome message with the reply keyboard."""
     if update.effective_message is None or update.effective_user is None:
         logger.debug("Skipping /start update with no effective message or user")
         return
     logger.info("User %s started the bot", update.effective_user.id)
-    await update.effective_message.reply_text(WELCOME_MESSAGE)
+    await update.effective_message.reply_text(WELCOME_MESSAGE, reply_markup=REPLY_KEYBOARD)
 
 
 def _make_report_handler(
@@ -658,8 +703,15 @@ def _make_pdf_handler(
 
 def _make_text_handler(
     expense_recording: ExpenseRecordingPort,
+    label_handlers: dict[str, HandlerFn],
 ):
-    """Factory: create a text handler that delegates all workflow to the recording port."""
+    """Factory: create a text handler that delegates all workflow to the recording port.
+
+    Before touching the recording port, an exact, case-sensitive full-text
+    match against ``label_handlers`` routes the message to the mapped command
+    handler (reply-keyboard labels, issue #14). Anything that does not match
+    a label falls through to the recording port exactly as before.
+    """
 
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.effective_message is None or update.effective_user is None:
@@ -672,6 +724,16 @@ def _make_text_handler(
             return
 
         user_id = update.effective_user.id
+
+        # Reply-keyboard label routing (issue #14): exact, case-sensitive
+        # full-text match. A match never reaches the recording port, so any
+        # pending correction state is untouched.
+        label_handler = label_handlers.get(text)
+        if label_handler is not None:
+            logger.info("Label %r routed to command handler for user %s", text, user_id)
+            await label_handler(update, context)
+            return
+
         logger.info("Text received from user %s", user_id)
 
         outcome = expense_recording.record(
@@ -733,6 +795,9 @@ async def _reply_with_recorded_expense(
         [[InlineKeyboardButton("🗑️ Delete", callback_data=f"delete:{saved_expense.id}")]]
     )
     await update.effective_message.reply_text(summary, reply_markup=keyboard)
+    # The Bot API allows at most one reply_markup per message, so the
+    # persistent reply keyboard rides on a follow-up message (ADR 0010).
+    await update.effective_message.reply_text(REPLY_KEYBOARD_HINT, reply_markup=REPLY_KEYBOARD)
 
 
 async def _reply_with_resolved_correction(
@@ -759,6 +824,9 @@ async def _reply_with_resolved_correction(
         [[InlineKeyboardButton("🗑️ Delete", callback_data=f"delete:{saved_expense.id}")]]
     )
     await update.effective_message.reply_text(summary, reply_markup=keyboard)
+    # The Bot API allows at most one reply_markup per message, so the
+    # persistent reply keyboard rides on a follow-up message (ADR 0010).
+    await update.effective_message.reply_text(REPLY_KEYBOARD_HINT, reply_markup=REPLY_KEYBOARD)
 
 
 async def _reply_with_incomplete_extraction(

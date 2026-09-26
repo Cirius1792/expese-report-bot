@@ -96,6 +96,31 @@ class _BDDFakeInlineKeyboardMarkup:
 mock_telegram.InlineKeyboardButton = _BDDFakeInlineKeyboardButton
 mock_telegram.InlineKeyboardMarkup = _BDDFakeInlineKeyboardMarkup
 
+
+# KeyboardButton — simple dataclass for test assertions (reply keyboard, issue #14)
+class _BDDFakeKeyboardButton:
+    def __init__(self, text: str):
+        self.text = text
+
+
+# ReplyKeyboardMarkup — stores the keyboard for test inspection (issue #14)
+class _BDDFakeReplyKeyboardMarkup:
+    def __init__(
+        self,
+        keyboard: list,
+        resize_keyboard: bool = False,
+        is_persistent: bool = False,
+        one_time_keyboard: bool = False,
+    ):
+        self.keyboard = keyboard
+        self.resize_keyboard = resize_keyboard
+        self.is_persistent = is_persistent
+        self.one_time_keyboard = one_time_keyboard
+
+
+mock_telegram.KeyboardButton = _BDDFakeKeyboardButton
+mock_telegram.ReplyKeyboardMarkup = _BDDFakeReplyKeyboardMarkup
+
 mock_ext = _MagicMock()
 mock_telegram.ext = mock_ext
 mock_ext.Application = _MagicMock()

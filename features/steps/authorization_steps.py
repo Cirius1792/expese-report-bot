@@ -71,7 +71,7 @@ def step_send_text_through_authorization_gate(context: Any, text: str) -> None:
             category=None,
         )
     )
-    handler = _make_text_handler(recording)
+    handler = _make_text_handler(recording, {})
     asyncio.run(handler(update, MagicMock()))
 
 
