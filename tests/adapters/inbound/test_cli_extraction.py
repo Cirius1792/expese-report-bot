@@ -158,7 +158,7 @@ class TestMainSociable:
             "Saved expense: Expense(id=1, amount=Decimal('15.00'), currency='EUR',"
             " merchant='Restaurant', date=datetime.date(2026, 7, 15),"
             " category='food', user_id=999999999, receipt_photo_id=None,"
-            " created_at=datetime.datetime(2026, 7, 15, 12, 0))\n"
+            " created_at=datetime.datetime(2026, 7, 15, 12, 0), deleted_at=None)\n"
         )
 
         # Assert: expense was actually saved to the database
