@@ -18,19 +18,19 @@ user-facing data access. Rows can still be retrieved on demand via an opt-in
 1. **`deleted_at` timestamp.** `Expense` gains `deleted_at: datetime | None`.
    `None` means "not deleted". A timestamp (not a bool) is chosen so the
    deletion moment is auditable and to mirror the existing `created_at`.
-2. **Opt-in retrieval of deleted rows.** Every read method on
-   `ExpenseRepositoryPort` gains an optional `include_deleted: bool = False`
-   parameter. Default `False` → deleted rows are filtered. Internal/audit paths
-   pass `include_deleted=True`.
-3. **`get_by_id` follows the same rule.** It is tests-only today, but is part of
-   the storage contract, so it also carries `include_deleted` and defaults to
-   filtering deleted rows.
+2. **Unconditional filtering of deleted rows.** Every read method on
+   `ExpenseRepositoryPort` filters logically deleted rows by default (`AND
+   deleted_at IS NULL` in the driven SQLite adapter). There is **no**
+   `include_deleted` opt-in: no caller ever needs to retrieve deleted rows, so
+   it was removed as unused surface area.
+3. **`get_by_id` filters deleted rows too.** It is tests-only today, but is part
+   of the storage contract, so it excludes deleted rows.
 4. **`delete_by_id` keeps its signature and becomes logical.** It now performs an
    `UPDATE ... SET deleted_at = ?` instead of a `DELETE`, and still returns the
    deleted `Expense` for the success message. No application-layer caller changes.
 5. **Filtering lives in the driven adapter.** The SQLite queries add
-   `AND deleted_at IS NULL` (or `IS NOT NULL` for the opt-in path). The
-   application layer needs no read-path changes — this is the hexagonal win.
+   `AND deleted_at IS NULL`. The application layer needs no read-path changes —
+   this is the hexagonal win.
 6. **Schema migration.** Existing tables are migrated with
    `ALTER TABLE expenses ADD COLUMN deleted_at TEXT` (nullable → existing rows
    read as "not deleted"). No row-level backfill required.
@@ -44,7 +44,7 @@ user-facing data access. Rows can still be retrieved on demand via an opt-in
 | Layer | Change |
 |---|---|
 | `domain/models.py` | `Expense` gains `deleted_at: datetime \| None`. |
-| `ports/repository.py` | Read methods gain `include_deleted: bool = False`; `delete_by_id` semantics change to logical. |
+| `ports/repository.py` | Read methods filter deleted rows unconditionally; `delete_by_id` semantics change to logical. |
 | `adapters/out/sqlite_repository.py` | Schema migration + per-query `deleted_at` filtering; `save` persists `deleted_at`; `delete_by_id` becomes an `UPDATE`. |
 | `application/expense_queries.py` | No read-path changes. `delete_expense` unchanged (delegates to the port). |
 | `application/expense_recording.py` | `_build_expense` sets `deleted_at=None` for fresh expenses. |
@@ -62,13 +62,12 @@ user-facing data access. Rows can still be retrieved on demand via an opt-in
 - [ ] The soft-deleted expense disappears from `/list` and `/report` and from the
       CSV report without any listing-code change.
 - [ ] `/list` totals and month discovery exclude soft-deleted expenses.
-- [ ] A soft-deleted expense is still retrievable via the port with
-      `include_deleted=True` (e.g. for an audit/restore path).
+- [ ] Deleted rows are excluded from every read method by default.
 
 ### Edge cases
 
-- [ ] `include_deleted=False` (default) on every read method filters deleted rows.
-- [ ] `include_deleted=True` returns deleted rows too.
+- [ ] Every read method filters deleted rows by default.
+- [ ] A wrong-user `/delete` still returns "not found" (user scoping preserved).
 - [ ] A wrong-user `/delete` still returns "not found" (user scoping preserved).
 - [ ] Soft-deleting does not reuse the row's id or disturb sibling rows.
 - [ ] Existing databases migrate cleanly: pre-existing rows read as not-deleted.
@@ -86,11 +85,9 @@ user-facing data access. Rows can still be retrieved on demand via an opt-in
 |---|---|
 | deleted_at persisted as None on save | `tests/adapters/out/test_sqlite_repository.py::TestLogicalDeletion::test_save_leaves_deleted_at_none` |
 | logical delete via UPDATE, row retained | `tests/adapters/out/test_sqlite_repository.py::TestLogicalDeletion::test_delete_by_id_soft_deletes_row_retained` |
-| reads filter deleted rows by default | `tests/adapters/out/test_sqlite_repository.py::TestLogicalDeletion::test_get_by_id_filters_deleted_by_default`, `::test_get_by_user_and_month_filters_deleted_by_default`, `::test_get_months_with_expenses_excludes_deleted`, `::test_get_total_by_user_and_year_excludes_deleted` |
-| include_deleted opt-in returns deleted rows | `tests/adapters/out/test_sqlite_repository.py::TestLogicalDeletion::test_get_by_id_include_deleted_returns_deleted`, `::test_get_by_user_and_month_include_deleted_returns_all` |
+| reads filter deleted rows by default | `tests/adapters/out/test_sqlite_repository.py::TestLogicalDeletion::test_get_by_id_filters_deleted_by_default`, `::test_get_by_user_and_month_filters_deleted_by_default`, `::test_get_months_with_expenses_excludes_deleted`, `::test_get_total_by_user_and_year_excludes_deleted`, `::test_soft_delete_does_not_disturb_siblings` |
 | user scoping preserved on delete | `tests/adapters/out/test_sqlite_repository.py::TestDeleteById::test_delete_by_id_scoped_to_user` |
 | already-deleted delete returns not-found | `tests/adapters/out/test_sqlite_repository.py::TestLogicalDeletion::test_delete_already_deleted_returns_none` |
-| soft-delete does not disturb siblings | `tests/adapters/out/test_sqlite_repository.py::TestLogicalDeletion::test_soft_delete_does_not_disturb_siblings` |
 | application layer unchanged | `tests/application/test_expense_queries.py` (all passing, no edits) |
 | schema migration | `tests/adapters/out/test_sqlite_repository.py::TestSchemaMigration::test_existing_db_without_deleted_at_migrates` |
 | no `DELETE FROM expenses` remains | `grep -rn "DELETE FROM" src tests` → no matches |

@@ -600,7 +600,7 @@ class TestGetTotalByUserAndYear:
 
 
 class TestLogicalDeletion:
-    """Logical deletion (ADR 0011) — deleted_at timestamp + include_deleted opt-in."""
+    """Logical deletion (ADR 0011) — deleted_at timestamp + unconditional filtering."""
 
     def _create_expense(
         self,
@@ -656,20 +656,6 @@ class TestLogicalDeletion:
 
         assert repo.get_by_id(saved.id) is None
 
-    def test_get_by_id_include_deleted_returns_deleted(
-        self, repo: "SqliteExpenseRepository"
-    ) -> None:
-        """get_by_id(include_deleted=True) returns soft-deleted rows."""
-        saved = self._create_expense(repo, user_id=1, d=date(2026, 7, 1))
-        assert saved.id is not None
-        repo.delete_by_id(user_id=1, expense_id=saved.id)
-
-        retrieved = repo.get_by_id(saved.id, include_deleted=True)
-
-        assert retrieved is not None
-        assert retrieved.id == saved.id
-        assert retrieved.deleted_at is not None
-
     def test_get_by_user_and_month_filters_deleted_by_default(
         self, repo: "SqliteExpenseRepository"
     ) -> None:
@@ -682,19 +668,6 @@ class TestLogicalDeletion:
         results = repo.get_by_user_and_month(user_id=1, year=2026, month=7)
 
         assert [e.merchant for e in results] == ["Live"]
-
-    def test_get_by_user_and_month_include_deleted_returns_all(
-        self, repo: "SqliteExpenseRepository"
-    ) -> None:
-        """include_deleted=True returns live and soft-deleted rows alike."""
-        self._create_expense(repo, user_id=1, d=date(2026, 7, 1), merchant="Live")
-        gone = self._create_expense(repo, user_id=1, d=date(2026, 7, 2), merchant="Gone")
-        assert gone.id is not None
-        repo.delete_by_id(user_id=1, expense_id=gone.id)
-
-        results = repo.get_by_user_and_month(user_id=1, year=2026, month=7, include_deleted=True)
-
-        assert {e.merchant for e in results} == {"Live", "Gone"}
 
     def test_get_months_with_expenses_excludes_deleted(
         self, repo: "SqliteExpenseRepository"
@@ -738,7 +711,12 @@ class TestLogicalDeletion:
         # Newest-first ordering: e3 (Jul 3), then e1 (Jul 1); e2 is gone.
         remaining = repo.get_by_user_and_month(user_id=1, year=2026, month=7)
         assert [e.id for e in remaining] == [e3.id, e1.id]
-        assert repo.get_by_id(e2.id, include_deleted=True) is not None
+        # The soft-deleted row is still present in the table with deleted_at set.
+        row = repo._conn.execute(
+            "SELECT deleted_at FROM expenses WHERE id = ?", (e2.id,)
+        ).fetchone()
+        assert row is not None
+        assert row["deleted_at"] is not None
 
 
 class TestSchemaMigration:

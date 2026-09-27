@@ -138,18 +138,13 @@ class SqliteExpenseRepository:
                 deleted_at=expense.deleted_at,
             )
 
-    @staticmethod
-    def _deleted_filter(include_deleted: bool) -> str:
-        """Return the SQL fragment that filters (or keeps) logically deleted rows."""
-        return "" if include_deleted else "AND deleted_at IS NULL "
-
-    def get_by_id(self, expense_id: int, *, include_deleted: bool = False) -> Expense | None:
+    def get_by_id(self, expense_id: int) -> Expense | None:
         """Retrieve a single expense by its unique identifier.
 
-        Logically deleted rows are excluded unless include_deleted=True.
+        Logically deleted rows are excluded.
         """
         row = self._conn.execute(
-            f"SELECT * FROM expenses WHERE id = ? {self._deleted_filter(include_deleted)}",
+            "SELECT * FROM expenses WHERE id = ? AND deleted_at IS NULL",
             (expense_id,),
         ).fetchone()
 
@@ -165,17 +160,15 @@ class SqliteExpenseRepository:
         user_id: int,
         year: int,
         month: int,
-        *,
-        include_deleted: bool = False,
     ) -> list[Expense]:
         """Retrieve all expenses for a given user in a given month, newest first.
 
-        Logically deleted rows are excluded unless include_deleted=True.
+        Logically deleted rows are excluded.
         """
         prefix = f"{year:04d}-{month:02d}"
         rows = self._conn.execute(
             "SELECT * FROM expenses WHERE user_id = ? AND date LIKE ? "
-            f"{self._deleted_filter(include_deleted)}"
+            "AND deleted_at IS NULL "
             "ORDER BY created_at DESC",
             (user_id, f"{prefix}%"),
         ).fetchall()
@@ -190,17 +183,15 @@ class SqliteExpenseRepository:
         )
         return expenses
 
-    def get_months_with_expenses(
-        self, user_id: int, year: int, *, include_deleted: bool = False
-    ) -> set[int]:
+    def get_months_with_expenses(self, user_id: int, year: int) -> set[int]:
         """Return the set of month numbers (1-12) that have expenses for a user in a year.
 
-        Logically deleted rows are excluded unless include_deleted=True.
+        Months whose only expenses are logically deleted are excluded.
         """
         prefix = f"{year:04d}-"
         rows = self._conn.execute(
             "SELECT DISTINCT substr(date, 6, 2) AS month FROM expenses"
-            f" WHERE user_id = ? AND date LIKE ? {self._deleted_filter(include_deleted)}",
+            " WHERE user_id = ? AND date LIKE ? AND deleted_at IS NULL",
             (user_id, f"{prefix}%"),
         ).fetchall()
 
@@ -213,17 +204,14 @@ class SqliteExpenseRepository:
         )
         return months
 
-    def get_total_by_user_and_year(
-        self, user_id: int, year: int, *, include_deleted: bool = False
-    ) -> Decimal:
+    def get_total_by_user_and_year(self, user_id: int, year: int) -> Decimal:
         """Return the sum of all expense amounts for a user in a year.
 
-        Logically deleted rows are excluded unless include_deleted=True.
+        Logically deleted rows are excluded.
         """
         prefix = f"{year:04d}-"
         rows = self._conn.execute(
-            "SELECT amount FROM expenses WHERE user_id = ? AND date LIKE ?"
-            f" {self._deleted_filter(include_deleted)}",
+            "SELECT amount FROM expenses WHERE user_id = ? AND date LIKE ? AND deleted_at IS NULL",
             (user_id, f"{prefix}%"),
         ).fetchall()
 

@@ -25,12 +25,11 @@ Replace physical deletion with **logical deletion**:
 - `delete_by_id(user_id, expense_id)` keeps its signature but now performs an
   `UPDATE expenses SET deleted_at = ? WHERE id = ? AND user_id = ?` instead of a
   `DELETE`, returning the pre-update row for the success message.
-- Every **read** method on `ExpenseRepositoryPort` gains an optional
-  `include_deleted: bool = False` parameter. The default filters logically
-  deleted rows; internal/audit paths opt in with `include_deleted=True`.
-- Filtering is implemented in the driven SQLite adapter (`AND deleted_at IS
-  NULL`), so the application layer needs **no** read-path changes — the port
-  contract stays stable.
+- Every **read** method on `ExpenseRepositoryPort` filters logically deleted rows
+  unconditionally (`AND deleted_at IS NULL` in the driven SQLite adapter). The
+  application layer needs **no** read-path changes — the port contract stays
+  stable. No `include_deleted` opt-in exists: no caller ever needs to retrieve
+  deleted rows, so it was removed as unused surface area (ADR reviewer feedback).
 - The `expenses` table is migrated with
   `ALTER TABLE expenses ADD COLUMN deleted_at TEXT` (nullable), so existing rows
   read as "not deleted" with no row-level backfill.
@@ -44,8 +43,8 @@ Replace physical deletion with **logical deletion**:
 - `/delete`, the inline delete button, `/list`, `/report`, and CSV keep the same
   user-facing behavior — deleted rows simply disappear from listings.
 - No `DELETE FROM expenses` remains in the codebase.
-- The port contract grows one optional parameter per read method; implementations
-  must honor it. `delete_by_id` signature is unchanged.
+- `delete_by_id` signature is unchanged. Read methods filter deleted rows
+  unconditionally; there is no `include_deleted` parameter on the port.
 - ADR 0010 (user-scoped ids) now depends on this ADR being implemented first.
 - `Expense` construction sites (`_build_expense`, `_row_to_expense`, tests) must
   supply `deleted_at`.
