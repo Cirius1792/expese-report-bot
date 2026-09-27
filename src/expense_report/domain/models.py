@@ -23,6 +23,7 @@ class Expense:
     user_id: int
     receipt_photo_id: str | None
     created_at: datetime
+    deleted_at: datetime | None = None
 
 
 @dataclass(frozen=True)

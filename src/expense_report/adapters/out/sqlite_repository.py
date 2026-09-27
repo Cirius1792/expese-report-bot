@@ -30,7 +30,11 @@ class SqliteExpenseRepository:
         self._create_table()
 
     def _create_table(self) -> None:
-        """Create the expenses table if it doesn't exist."""
+        """Create the expenses table if it doesn't exist.
+
+        Pre-existing tables (without the deleted_at column) are migrated in
+        place with ALTER TABLE; existing rows read as not-deleted.
+        """
         self._conn.execute(
             """
             CREATE TABLE IF NOT EXISTS expenses (
@@ -42,11 +46,20 @@ class SqliteExpenseRepository:
                 category TEXT,
                 user_id INTEGER NOT NULL,
                 receipt_photo_id TEXT,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                deleted_at TEXT
             )
             """
         )
+        self._migrate_schema()
         self._conn.commit()
+
+    def _migrate_schema(self) -> None:
+        """Add the deleted_at column to tables created before ADR 0011."""
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(expenses)")}
+        if "deleted_at" not in columns:
+            logger.info("Migrating expenses table: adding deleted_at column")
+            self._conn.execute("ALTER TABLE expenses ADD COLUMN deleted_at TEXT")
 
     def save(self, expense: Expense) -> Expense:
         """Persist an expense record.
@@ -59,8 +72,8 @@ class SqliteExpenseRepository:
                 """
                 INSERT OR REPLACE INTO expenses
                     (id, amount, currency, merchant, date, category,
-                     user_id, receipt_photo_id, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     user_id, receipt_photo_id, created_at, deleted_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     expense.id,
@@ -72,6 +85,7 @@ class SqliteExpenseRepository:
                     expense.user_id,
                     expense.receipt_photo_id,
                     expense.created_at.isoformat(),
+                    expense.deleted_at.isoformat() if expense.deleted_at is not None else None,
                 ),
             )
             self._conn.commit()
@@ -86,14 +100,15 @@ class SqliteExpenseRepository:
                 user_id=expense.user_id,
                 receipt_photo_id=expense.receipt_photo_id,
                 created_at=expense.created_at,
+                deleted_at=expense.deleted_at,
             )
         else:
             cursor = self._conn.execute(
                 """
                 INSERT INTO expenses
                     (amount, currency, merchant, date, category,
-                     user_id, receipt_photo_id, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                     user_id, receipt_photo_id, created_at, deleted_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(expense.amount),
@@ -104,6 +119,7 @@ class SqliteExpenseRepository:
                     expense.user_id,
                     expense.receipt_photo_id,
                     expense.created_at.isoformat(),
+                    expense.deleted_at.isoformat() if expense.deleted_at is not None else None,
                 ),
             )
             self._conn.commit()
@@ -119,12 +135,21 @@ class SqliteExpenseRepository:
                 user_id=expense.user_id,
                 receipt_photo_id=expense.receipt_photo_id,
                 created_at=expense.created_at,
+                deleted_at=expense.deleted_at,
             )
 
-    def get_by_id(self, expense_id: int) -> Expense | None:
-        """Retrieve a single expense by its unique identifier."""
+    @staticmethod
+    def _deleted_filter(include_deleted: bool) -> str:
+        """Return the SQL fragment that filters (or keeps) logically deleted rows."""
+        return "" if include_deleted else "AND deleted_at IS NULL "
+
+    def get_by_id(self, expense_id: int, *, include_deleted: bool = False) -> Expense | None:
+        """Retrieve a single expense by its unique identifier.
+
+        Logically deleted rows are excluded unless include_deleted=True.
+        """
         row = self._conn.execute(
-            "SELECT * FROM expenses WHERE id = ?",
+            f"SELECT * FROM expenses WHERE id = ? {self._deleted_filter(include_deleted)}",
             (expense_id,),
         ).fetchone()
 
@@ -140,11 +165,18 @@ class SqliteExpenseRepository:
         user_id: int,
         year: int,
         month: int,
+        *,
+        include_deleted: bool = False,
     ) -> list[Expense]:
-        """Retrieve all expenses for a given user in a given month, newest first."""
+        """Retrieve all expenses for a given user in a given month, newest first.
+
+        Logically deleted rows are excluded unless include_deleted=True.
+        """
         prefix = f"{year:04d}-{month:02d}"
         rows = self._conn.execute(
-            "SELECT * FROM expenses WHERE user_id = ? AND date LIKE ? ORDER BY created_at DESC",
+            "SELECT * FROM expenses WHERE user_id = ? AND date LIKE ? "
+            f"{self._deleted_filter(include_deleted)}"
+            "ORDER BY created_at DESC",
             (user_id, f"{prefix}%"),
         ).fetchall()
 
@@ -158,12 +190,17 @@ class SqliteExpenseRepository:
         )
         return expenses
 
-    def get_months_with_expenses(self, user_id: int, year: int) -> set[int]:
-        """Return the set of month numbers (1-12) that have expenses for a user in a year."""
+    def get_months_with_expenses(
+        self, user_id: int, year: int, *, include_deleted: bool = False
+    ) -> set[int]:
+        """Return the set of month numbers (1-12) that have expenses for a user in a year.
+
+        Logically deleted rows are excluded unless include_deleted=True.
+        """
         prefix = f"{year:04d}-"
         rows = self._conn.execute(
             "SELECT DISTINCT substr(date, 6, 2) AS month FROM expenses"
-            " WHERE user_id = ? AND date LIKE ?",
+            f" WHERE user_id = ? AND date LIKE ? {self._deleted_filter(include_deleted)}",
             (user_id, f"{prefix}%"),
         ).fetchall()
 
@@ -176,11 +213,17 @@ class SqliteExpenseRepository:
         )
         return months
 
-    def get_total_by_user_and_year(self, user_id: int, year: int) -> Decimal:
-        """Return the sum of all expense amounts for a user in a year."""
+    def get_total_by_user_and_year(
+        self, user_id: int, year: int, *, include_deleted: bool = False
+    ) -> Decimal:
+        """Return the sum of all expense amounts for a user in a year.
+
+        Logically deleted rows are excluded unless include_deleted=True.
+        """
         prefix = f"{year:04d}-"
         rows = self._conn.execute(
-            "SELECT amount FROM expenses WHERE user_id = ? AND date LIKE ?",
+            "SELECT amount FROM expenses WHERE user_id = ? AND date LIKE ?"
+            f" {self._deleted_filter(include_deleted)}",
             (user_id, f"{prefix}%"),
         ).fetchall()
 
@@ -197,13 +240,15 @@ class SqliteExpenseRepository:
         return total
 
     def delete_by_id(self, user_id: int, expense_id: int) -> Expense | None:
-        """Delete an expense by its integer id, scoped to the given user.
+        """Logically delete an expense by its integer id, scoped to the given user.
 
-        Returns the deleted Expense for the caller to format a success message,
-        or None if no matching expense was found.
+        Marks the row with a deleted_at timestamp (ADR 0011); the row is never
+        physically removed. Returns the deleted Expense for the caller to
+        format a success message, or None if no matching live expense exists
+        (unknown id, other user, or already deleted).
         """
         row = self._conn.execute(
-            "SELECT * FROM expenses WHERE id = ? AND user_id = ?",
+            "SELECT * FROM expenses WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
             (expense_id, user_id),
         ).fetchone()
 
@@ -215,19 +260,21 @@ class SqliteExpenseRepository:
             )
             return None
 
+        deleted_at = datetime.now()
         self._conn.execute(
-            "DELETE FROM expenses WHERE id = ? AND user_id = ?",
-            (expense_id, user_id),
+            "UPDATE expenses SET deleted_at = ? WHERE id = ? AND user_id = ?",
+            (deleted_at.isoformat(), expense_id, user_id),
         )
         self._conn.commit()
 
-        logger.info("Deleted expense %s for user %s", expense_id, user_id)
+        logger.info("Deleted expense %s for user %s at %s", expense_id, user_id, deleted_at)
 
         return self._row_to_expense(row)
 
     @staticmethod
     def _row_to_expense(row: sqlite3.Row) -> Expense:
         """Convert a SQLite row to an Expense domain object."""
+        deleted_at_raw = row["deleted_at"]
         return Expense(
             id=int(row["id"]),
             amount=Decimal(row["amount"]),
@@ -238,4 +285,7 @@ class SqliteExpenseRepository:
             user_id=row["user_id"],
             receipt_photo_id=row["receipt_photo_id"],
             created_at=datetime.fromisoformat(row["created_at"]),
+            deleted_at=(
+                datetime.fromisoformat(deleted_at_raw) if deleted_at_raw is not None else None
+            ),
         )

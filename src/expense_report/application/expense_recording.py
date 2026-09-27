@@ -53,6 +53,7 @@ def _build_expense(
         user_id=user_id,
         receipt_photo_id=receipt_photo_id,
         created_at=datetime.now(),
+        deleted_at=None,
     )
 
 

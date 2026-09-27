@@ -597,3 +597,191 @@ class TestGetTotalByUserAndYear:
 
         result = repo.get_total_by_user_and_year(12345, 2026)
         assert result == Decimal("0.30")
+
+
+class TestLogicalDeletion:
+    """Logical deletion (ADR 0011) — deleted_at timestamp + include_deleted opt-in."""
+
+    def _create_expense(
+        self,
+        repo: "SqliteExpenseRepository",
+        user_id: int,
+        d: date,
+        amount: str = "10.00",
+        merchant: str = "Shop",
+    ) -> Expense:
+        return repo.save(
+            Expense(
+                id=None,
+                amount=Decimal(amount),
+                currency="EUR",
+                merchant=merchant,
+                date=d,
+                category=None,
+                user_id=user_id,
+                receipt_photo_id=None,
+                created_at=datetime(d.year, d.month, d.day, 12, 0, 0),
+            )
+        )
+
+    def test_save_leaves_deleted_at_none(self, repo: "SqliteExpenseRepository") -> None:
+        """Saving a new expense leaves deleted_at as None."""
+        saved = self._create_expense(repo, user_id=1, d=date(2026, 7, 1))
+        assert saved.deleted_at is None
+
+    def test_delete_by_id_soft_deletes_row_retained(self, repo: "SqliteExpenseRepository") -> None:
+        """delete_by_id sets deleted_at and retains the row in the table."""
+        saved = self._create_expense(repo, user_id=1, d=date(2026, 7, 1), amount="42.50")
+        assert saved.id is not None
+
+        result = repo.delete_by_id(user_id=1, expense_id=saved.id)
+
+        # Caller still gets the deleted expense for the success message.
+        assert result is not None
+        assert result.id == saved.id
+        assert result.amount == Decimal("42.50")
+
+        # The row is retained in the table with deleted_at set.
+        row = repo._conn.execute(
+            "SELECT deleted_at FROM expenses WHERE id = ?", (saved.id,)
+        ).fetchone()
+        assert row is not None
+        assert row["deleted_at"] is not None
+
+    def test_get_by_id_filters_deleted_by_default(self, repo: "SqliteExpenseRepository") -> None:
+        """get_by_id excludes soft-deleted rows by default."""
+        saved = self._create_expense(repo, user_id=1, d=date(2026, 7, 1))
+        assert saved.id is not None
+        repo.delete_by_id(user_id=1, expense_id=saved.id)
+
+        assert repo.get_by_id(saved.id) is None
+
+    def test_get_by_id_include_deleted_returns_deleted(
+        self, repo: "SqliteExpenseRepository"
+    ) -> None:
+        """get_by_id(include_deleted=True) returns soft-deleted rows."""
+        saved = self._create_expense(repo, user_id=1, d=date(2026, 7, 1))
+        assert saved.id is not None
+        repo.delete_by_id(user_id=1, expense_id=saved.id)
+
+        retrieved = repo.get_by_id(saved.id, include_deleted=True)
+
+        assert retrieved is not None
+        assert retrieved.id == saved.id
+        assert retrieved.deleted_at is not None
+
+    def test_get_by_user_and_month_filters_deleted_by_default(
+        self, repo: "SqliteExpenseRepository"
+    ) -> None:
+        """get_by_user_and_month excludes soft-deleted rows by default."""
+        self._create_expense(repo, user_id=1, d=date(2026, 7, 1), merchant="Live")
+        gone = self._create_expense(repo, user_id=1, d=date(2026, 7, 2), merchant="Gone")
+        assert gone.id is not None
+        repo.delete_by_id(user_id=1, expense_id=gone.id)
+
+        results = repo.get_by_user_and_month(user_id=1, year=2026, month=7)
+
+        assert [e.merchant for e in results] == ["Live"]
+
+    def test_get_by_user_and_month_include_deleted_returns_all(
+        self, repo: "SqliteExpenseRepository"
+    ) -> None:
+        """include_deleted=True returns live and soft-deleted rows alike."""
+        self._create_expense(repo, user_id=1, d=date(2026, 7, 1), merchant="Live")
+        gone = self._create_expense(repo, user_id=1, d=date(2026, 7, 2), merchant="Gone")
+        assert gone.id is not None
+        repo.delete_by_id(user_id=1, expense_id=gone.id)
+
+        results = repo.get_by_user_and_month(user_id=1, year=2026, month=7, include_deleted=True)
+
+        assert {e.merchant for e in results} == {"Live", "Gone"}
+
+    def test_get_months_with_expenses_excludes_deleted(
+        self, repo: "SqliteExpenseRepository"
+    ) -> None:
+        """Month discovery excludes months whose only expenses are soft-deleted."""
+        self._create_expense(repo, user_id=1, d=date(2026, 7, 1))
+        gone = self._create_expense(repo, user_id=1, d=date(2026, 3, 5))
+        assert gone.id is not None
+        repo.delete_by_id(user_id=1, expense_id=gone.id)
+
+        assert repo.get_months_with_expenses(1, 2026) == {7}
+
+    def test_get_total_by_user_and_year_excludes_deleted(
+        self, repo: "SqliteExpenseRepository"
+    ) -> None:
+        """Year totals exclude soft-deleted expenses."""
+        self._create_expense(repo, user_id=1, d=date(2026, 7, 1), amount="40.00")
+        gone = self._create_expense(repo, user_id=1, d=date(2026, 3, 5), amount="30.00")
+        assert gone.id is not None
+        repo.delete_by_id(user_id=1, expense_id=gone.id)
+
+        assert repo.get_total_by_user_and_year(1, 2026) == Decimal("40.00")
+
+    def test_delete_already_deleted_returns_none(self, repo: "SqliteExpenseRepository") -> None:
+        """Deleting an already soft-deleted expense returns None (not found)."""
+        saved = self._create_expense(repo, user_id=1, d=date(2026, 7, 1))
+        assert saved.id is not None
+        repo.delete_by_id(user_id=1, expense_id=saved.id)
+
+        assert repo.delete_by_id(user_id=1, expense_id=saved.id) is None
+
+    def test_soft_delete_does_not_disturb_siblings(self, repo: "SqliteExpenseRepository") -> None:
+        """Soft-deleting one expense leaves sibling rows untouched (ids stable)."""
+        e1 = self._create_expense(repo, user_id=1, d=date(2026, 7, 1), merchant="A")
+        e2 = self._create_expense(repo, user_id=1, d=date(2026, 7, 2), merchant="B")
+        e3 = self._create_expense(repo, user_id=1, d=date(2026, 7, 3), merchant="C")
+        assert e1.id is not None and e2.id is not None and e3.id is not None
+
+        repo.delete_by_id(user_id=1, expense_id=e2.id)
+
+        # Newest-first ordering: e3 (Jul 3), then e1 (Jul 1); e2 is gone.
+        remaining = repo.get_by_user_and_month(user_id=1, year=2026, month=7)
+        assert [e.id for e in remaining] == [e3.id, e1.id]
+        assert repo.get_by_id(e2.id, include_deleted=True) is not None
+
+
+class TestSchemaMigration:
+    """Schema migration for pre-existing databases (no deleted_at column)."""
+
+    def test_existing_db_without_deleted_at_migrates(self, tmp_path) -> None:
+        """A DB created with the old schema gains deleted_at; rows read as live."""
+        import sqlite3
+
+        from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
+
+        db_file = tmp_path / "legacy.db"
+        conn = sqlite3.connect(db_file)
+        conn.execute(
+            """
+            CREATE TABLE expenses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                amount TEXT NOT NULL,
+                currency TEXT NOT NULL,
+                merchant TEXT NOT NULL,
+                date TEXT NOT NULL,
+                category TEXT,
+                user_id INTEGER NOT NULL,
+                receipt_photo_id TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO expenses"
+            " (amount, currency, merchant, date, category, user_id, receipt_photo_id, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            ("10.00", "EUR", "Legacy Shop", "2026-07-01", None, 42, None, "2026-07-01T12:00:00"),
+        )
+        conn.commit()
+        conn.close()
+
+        repo = SqliteExpenseRepository(str(db_file))
+
+        cols = {row[1] for row in repo._conn.execute("PRAGMA table_info(expenses)").fetchall()}
+        assert "deleted_at" in cols
+
+        expenses = repo.get_by_user_and_month(user_id=42, year=2026, month=7)
+        assert len(expenses) == 1
+        assert expenses[0].merchant == "Legacy Shop"
+        assert expenses[0].deleted_at is None

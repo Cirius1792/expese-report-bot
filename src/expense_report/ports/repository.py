@@ -23,11 +23,13 @@ class ExpenseRepositoryPort(Protocol):
         """
         ...
 
-    def get_by_id(self, expense_id: int) -> Expense | None:
+    def get_by_id(self, expense_id: int, *, include_deleted: bool = False) -> Expense | None:
         """Retrieve a single expense by its unique identifier.
 
         Args:
             expense_id: The persistent integer id of the expense.
+            include_deleted: When False (default), logically deleted expenses
+                are filtered out. Pass True to include them (audit paths).
 
         Returns:
             The expense if found, None otherwise.
@@ -35,7 +37,10 @@ class ExpenseRepositoryPort(Protocol):
         ...
 
     def delete_by_id(self, user_id: int, expense_id: int) -> Expense | None:
-        """Delete an expense by its id, scoped to a user.
+        """Logically delete an expense by its id, scoped to a user.
+
+        Marks the row as deleted (deleted_at timestamp) without removing it.
+        Expenses that are already deleted are treated as not found.
 
         Args:
             user_id: The Telegram user id.
@@ -51,6 +56,8 @@ class ExpenseRepositoryPort(Protocol):
         user_id: int,
         year: int,
         month: int,
+        *,
+        include_deleted: bool = False,
     ) -> list[Expense]:
         """Retrieve all expenses for a given user in a given month.
 
@@ -58,30 +65,40 @@ class ExpenseRepositoryPort(Protocol):
             user_id: The Telegram user id.
             year: The year (e.g., 2026).
             month: The month number (1-12).
+            include_deleted: When False (default), logically deleted expenses
+                are filtered out. Pass True to include them (audit paths).
 
         Returns:
             A list of expenses, newest first.
         """
         ...
 
-    def get_months_with_expenses(self, user_id: int, year: int) -> set[int]:
+    def get_months_with_expenses(
+        self, user_id: int, year: int, *, include_deleted: bool = False
+    ) -> set[int]:
         """Return the set of month numbers (1-12) that have expenses for a user in a year.
 
         Args:
             user_id: The Telegram user id.
             year: The year (e.g., 2026).
+            include_deleted: When False (default), months whose only expenses
+                are logically deleted are excluded. Pass True to include them.
 
         Returns:
             A set of month numbers with at least one expense (empty set if none).
         """
         ...
 
-    def get_total_by_user_and_year(self, user_id: int, year: int) -> Decimal:
+    def get_total_by_user_and_year(
+        self, user_id: int, year: int, *, include_deleted: bool = False
+    ) -> Decimal:
         """Return the sum of all expense amounts for a user in a year.
 
         Args:
             user_id: The Telegram user id.
             year: The year (e.g., 2026).
+            include_deleted: When False (default), logically deleted expenses
+                are excluded from the total. Pass True to include them.
 
         Returns:
             The total amount as Decimal (0.00 if no expenses).
