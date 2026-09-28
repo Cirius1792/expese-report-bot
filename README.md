@@ -111,42 +111,7 @@ uv run expense-extract extract-from-text "lunch 15.50 eur at Mario's Pizzeria on
 
 ## Docker Deployment
 
-The Compose setup uses **two separate env files** for different purposes:
-
-| File | Purpose | Used by |
-|------|---------|---------|
-| `.env` | Bot runtime environment variables (`TELEGRAM_BOT_TOKEN`, `LLM_*`, `AUTHORIZED_USERS_CONFIG_PATH` etc.) | `docker-compose.yml` `env_file:` directive — injected into the running container |
-| `.env.deploy` | Compose file interpolation (`${UID}`, `${GID}`) | `--env-file .env.deploy` flag — resolved at `docker compose up` time, **not** passed to the container |
-
-```bash
-# 1. Copy runtime env file (for container environment)
-cp .env.example .env
-# Edit .env with your real Telegram token, LLM credentials, and authorization config
-
-# 2. Copy Compose interpolation file (for host file ownership)
-cp .env.deploy.example .env.deploy
-# Edit .env.deploy UID/GID if your host user is not 1000:1000
-
-# 3. Start with both files — one for interpolation, one for the container
-# Compose automatically picks up env_file: .env defined in docker-compose.yml
-docker compose --env-file .env.deploy up -d
-```
-
-The container:
-- Runs as the `UID:GID` specified in `.env.deploy` so the bind-mounted database is owned by the host user
-- Persists the SQLite database to `./data/expenses.db` on the host
-- Reads `AUTHORIZED_USERS_CONFIG_PATH` from `.env` at runtime. **In `.env`, set `AUTHORIZED_USERS_CONFIG_PATH=/data/authorized-users.json`** and place the whitelist file in `./data/` on the host. (The default from `.env.example` is a local path — Docker needs the container path.)
-- Optionally set `UNAUTHORIZED_LOG_PATH=/data/unauthorized.log` in `.env` for a dedicated audit log inside the same persisted volume.
-- Auto-restarts unless explicitly stopped (`restart: unless-stopped`)
-
-**Managing the bot:**
-
-```bash
-docker compose --env-file .env.deploy logs -f   # follow logs
-docker compose --env-file .env.deploy down       # stop and remove
-docker compose --env-file .env.deploy up -d      # restart
-docker compose --env-file .env.deploy build      # rebuild after code changes
-```
+For instructions on deploying the bot using Docker Compose, see [Docker Deployment Guide](docs/how-to-deploy-docker.md).
 
 ## Running Tests
 
@@ -209,31 +174,6 @@ src/expense_report/
 - **SQLite**: Zero-config persistence, `Decimal` values stored as strings for precision
 - **Correction loop**: Up to 3 refinement attempts via the same `ExtractionPort.refine` interface
 - See `docs/adr/` for full Architecture Decision Records
-
-### Dependencies
-
-| Package | Purpose |
-|---------|---------|
-| `dspy-ai` | LLM extraction framework |
-| `python-telegram-bot[job-queue]` | Telegram Bot API client |
-| `openai` | OpenAI-compatible LLM backend |
-| `pillow` | Image processing for receipt photos |
-
-## User Stories
-
-| # | Story | Status |
-|---|-------|--------|
-| 1 | Extract expense data from receipt photo | ✅ |
-| 2 | Extract expense data from free-text message | ✅ |
-| 3 | Send receipt photo via Telegram and get confirmation | ✅ |
-| 4 | Send free-text expense via Telegram and get confirmation | ✅ |
-| 5 | Extraction fails gracefully on unreadable receipt | ✅ |
-| 6 | Bot prompts for missing fields on partial extraction | ✅ |
-| 7 | User can correct/amend extracted fields | ✅ |
-| 8 | Multiple correction retries with max attempt limit | ✅ |
-| 9 | Generate monthly CSV expense report | ✅ |
-| 10 | Expenses are isolated per user | ✅ |
-| 11 | User authorization whitelist | ✅ |
 
 ## License
 
