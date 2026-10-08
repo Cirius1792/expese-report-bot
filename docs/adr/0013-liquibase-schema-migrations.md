@@ -102,8 +102,11 @@ Verified by building the image and running the entrypoint end-to-end:
   `liquibase update` first**.
   - Container: `docker-entrypoint.sh` runs
     `liquibase update --url=jdbc:sqlite:${EXPENSE_DB_PATH} --changelog-file=...`
-    then `exec`s the bot (bot stays PID 1; a failed migration exits non-zero
-    and the bot never starts).
+    in a subshell (so the `exec`'d bot keeps the image WORKDIR `/app`), then
+    `exec`s the bot (bot stays PID 1; a failed migration exits non-zero and the
+    bot never starts). It exports `EXPENSE_SCHEMA_MIGRATED=1` so `main()` does not
+    launch a second, redundant Liquibase JVM inside the container; `main()` still
+    migrates when the bot is started outside the container.
   - `expense-extract` CLI: runs `liquibase update` against its `--db` path
     before opening the repository.
   - Tests/BDD: fixtures run the real `liquibase update` binary against a

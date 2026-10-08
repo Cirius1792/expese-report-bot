@@ -50,6 +50,22 @@ Two callers each carrying their own copy of "how to test" is what let
 - ADR 0012's `unit-tests` / `bdd-tests` job names are historical; the coverage
   *contract* it records is unchanged.
 
+## Revision — 2026-10-08 (PR review hardening)
+
+A review of PR #19 tightened the reusable workflow's blast radius and runtime:
+
+- `tests.yml` declares workflow-level `permissions: contents: read` (it runs
+  untrusted PR code), and both caller test jobs pass `permissions: contents:
+  read` explicitly.
+- Both jobs set `timeout-minutes: 20`, and `ci.yml`'s `tests` job adds a
+  `concurrency` group with `cancel-in-progress: true` so superseded runs do not
+  pile up. `release.yml` intentionally has no concurrency group (a release must
+  not be cancelled).
+- `astral-sh/setup-uv` runs with `enable-cache: true` in both jobs.
+- The full profile re-adds `--strict-markers` after `-o addopts=""`, which
+  otherwise drops the project's marker validation along with the integration
+  deselection.
+
 ## Alternatives considered
 
 - **Inline the fix in both workflows** — smaller diff, but leaves the exact

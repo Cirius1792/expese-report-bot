@@ -11,6 +11,13 @@ jobs:
     uses: ./.github/workflows/tests.yml
     with:
       upload-coverage: true
+    # Test code runs with a read-only token (the default can be read-write).
+    permissions:
+      contents: read
+    # Cancel superseded runs on the same ref so rapid pushes do not pile up.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
 
   generate-badge:
     runs-on: ubuntu-latest

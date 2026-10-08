@@ -9,10 +9,7 @@ import pytest
 import expense_report.adapters.inbound.main as bot_main
 
 
-def test_main_migrates_before_opening_the_database(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`expense-bot` is an entry point, so it must migrate before opening SQLite."""
-    order: list[str] = []
-
+def _patch_main(monkeypatch: pytest.MonkeyPatch, order: list[str]) -> None:
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "0:test-token")
     monkeypatch.setattr(bot_main, "_configure_logging", lambda: "INFO")
     monkeypatch.setattr(bot_main, "load_authorized_user_ids_from_env", lambda: set())
@@ -41,6 +38,26 @@ def test_main_migrates_before_opening_the_database(monkeypatch: pytest.MonkeyPat
     ):
         monkeypatch.setattr(bot_main, name, MagicMock())
 
+
+def test_main_migrates_before_opening_the_database(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`expense-bot` is an entry point, so it must migrate before opening SQLite."""
+    order: list[str] = []
+    monkeypatch.delenv("EXPENSE_SCHEMA_MIGRATED", raising=False)
+    _patch_main(monkeypatch, order)
+
     bot_main.main()
 
     assert order == ["migrate", "open"]
+
+
+def test_main_skips_migration_when_entrypoint_already_migrated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The container entrypoint is the single migrator; no second Liquibase JVM."""
+    order: list[str] = []
+    monkeypatch.setenv("EXPENSE_SCHEMA_MIGRATED", "1")
+    _patch_main(monkeypatch, order)
+
+    bot_main.main()
+
+    assert order == ["open"]

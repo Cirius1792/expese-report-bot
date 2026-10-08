@@ -95,7 +95,10 @@ def main() -> None:
     )
 
     # ADR 0013: no entry point opens the database before running the migration.
-    ensure_database_migrated(db_path)
+    # The container entrypoint is the container's single migrator and exports
+    # EXPENSE_SCHEMA_MIGRATED=1, so skip the redundant second Liquibase JVM.
+    if os.environ.get("EXPENSE_SCHEMA_MIGRATED") != "1":
+        ensure_database_migrated(db_path)
 
     extraction = DspyExtractionAdapter()
     repository = SqliteExpenseRepository(db_path=db_path)

@@ -12,11 +12,17 @@ profile by default; full profile is `-o addopts=""`).
   - `.github/workflows/release.yml` (tag push), whose `build-push` job still
     `needs:` the tests outcome.
 - The reusable `.github/workflows/tests.yml`:
-  - runs the **full** pytest profile — `uv run pytest -o addopts=""` — so the
-    integration tests and the snapshot drift guard (ADR 0014) always execute,
+  - runs the **full** pytest profile — `uv run pytest -o addopts=""
+    --strict-markers` — so the integration tests and the snapshot drift guard
+    (ADR 0014) always execute while marker validation is kept,
   - then runs `uv run behave` (BDD, needs Docker),
   - pulls the pinned image `docker pull liquibase/liquibase:4.33.0` before
-    running either suite.
+    running either suite,
+  - declares workflow-level `permissions: contents: read`, sets
+    `timeout-minutes: 20` on both jobs, and enables the uv cache
+    (`enable-cache: true`). Caller test jobs pass `permissions: contents: read`
+    explicitly, and `ci.yml`'s `tests` job cancels superseded runs via a
+    `concurrency` group with `cancel-in-progress: true`.
 - `ci.yml` passes `upload-coverage: true`; the reusable workflow uploads the
   `coverage-data` artifact and the `generate-badge` job still downloads it and
   advances `coverage.svg` only on push to `main`.
@@ -41,6 +47,9 @@ profile by default; full profile is `-o addopts=""`).
 - No workflow copies the wrapper onto `PATH` (`cp scripts/liquibase
   /usr/local/bin/liquibase`). Tests resolve `scripts/liquibase` by absolute
   path and behave self-provisions `scripts/` on `PATH`.
+- The reusable workflow must not run with the repository default (often
+  read-write) token, and no test job may run unbounded: each job declares
+  `timeout-minutes` and the workflow declares `permissions: contents: read`.
 - The reusable workflow must not skip BDD.
 - `release.yml` must not build or push the image when the tests workflow fails.
 

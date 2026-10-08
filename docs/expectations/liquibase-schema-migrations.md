@@ -6,7 +6,15 @@
 - Running `liquibase update` against a **fresh** empty database file creates the `expenses` table, the `databasechangelog` table, and the `databasechangeloglock` table, and exits 0.
 - Running `liquibase update` a second time against the same database is a no-op (no new changesets) and exits 0.
 - `SqliteExpenseRepository` opens a migrated database and all port operations (save, get_by_id, get_by_user_and_month, get_months_with_expenses, get_total_by_user_and_year, delete_by_id) work unchanged.
-- The container entrypoint script runs `liquibase update` against `EXPENSE_DB_PATH` and only then `exec`s the bot; the bot process ends up as the container's main process.
+- The container entrypoint script runs `liquibase update` against `EXPENSE_DB_PATH`
+  in a subshell (so the bot inherits the image WORKDIR `/app`, not `/app/db`)
+  and only then `exec`s the bot; the bot process ends up as the container's main
+  process. It fails fast (`exit 1`) when `EXPENSE_DB_PATH` is unset or empty,
+  and marks the database as migrated so the bot does not run a second Liquibase
+  JVM. The `scripts/liquibase` wrapper reads the subcommand and
+  `--changelog-file` from its caller, stages the database in a private
+  (mode `700`) directory, and fails loudly if a staged copy-in or copy-back
+  fails.
 - The `expense-extract` CLI runs `liquibase update` against its `--db` path before opening the repository, so it works against both fresh and pre-existing database files.
 - CI and the release pipeline call the reusable `.github/workflows/tests.yml`, which pulls the Liquibase 4.33.0 image and runs the full pytest profile (`uv run pytest -o addopts=""`, unit + integration) plus BDD; the wrapper is resolved by absolute path, never copied onto `PATH`.
 - The test suite is split by capability: a plain `uv run pytest` runs the hermetic unit suite (no Docker, no `liquibase` on `PATH`) and passes; `uv run pytest -o addopts=""` runs the full suite including integration tests; `uv run pytest -o addopts="" -m integration` runs only the integration tests and fails loudly with an actionable message when Docker is unavailable.
@@ -25,6 +33,10 @@
 - `SqliteExpenseRepository` must not create, alter, or migrate any schema. No `CREATE TABLE`, `ALTER TABLE`, or `PRAGMA table_info`-driven migration code remains in the adapter.
 - No **hand-authored** schema definition may exist. Test and BDD databases obtain the schema either by running the changelog, or from `tests/_schema/expenses.sql` — a **generated** artifact that covers every application-owned schema object and embeds the changelog's SHA-256, so `tests/migrations/test_schema_snapshot.py` fails hermetically on any changelog edit until the artifact is regenerated (and fails against the real changelog output in the integration profile). (Deliberate exception: `tests/migrations/test_changelog.py` recreates a **legacy** pre-`deleted_at` schema to prove the upgrade path.)
 - The bot must not start if `liquibase update` fails (the entrypoint exits non-zero before the bot process is launched).
+- The `scripts/liquibase` staging directory must never be world-readable or
+  world-writable, and a failed staged copy-in or copy-back must fail loudly — an
+  unchecked copy-back must never leave the caller believing an unmigrated
+  database was migrated.
 - Applied changesets must never be edited in place; new schema changes are new changesets appended to the changelog.
 - The `databasechangelog` / `databasechangeloglock` tables must not be dropped, renamed, or modified by application code.
 - Domain and port layers must remain free of any Liquibase, migration, or DDL concerns (hexagonal boundary intact).

@@ -28,6 +28,9 @@ jobs:
   tests:
     needs: validate-version
     uses: ./.github/workflows/tests.yml
+    # Test code runs with a read-only token (the default can be read-write).
+    permissions:
+      contents: read
 
   build-push:
     needs: tests

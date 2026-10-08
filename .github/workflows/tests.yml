@@ -13,21 +13,28 @@ on:
         type: boolean
         default: false
 
+# Least privilege: this workflow executes pull-request code, so the token must
+# not be able to write back to the repository.
+permissions:
+  contents: read
+
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           python-version: "3.12"
+          enable-cache: true
       - name: Install dependencies
         run: uv sync --dev --frozen
       - name: Pull Liquibase image
         run: docker pull liquibase/liquibase:4.33.0
       - name: Run full test suite (unit + integration)
-        run: uv run pytest -o addopts="" --cov=expense_report
+        run: uv run pytest -o addopts="" --strict-markers --cov=expense_report
       - name: Upload coverage data
         if: inputs.upload-coverage
         uses: actions/upload-artifact@v4
@@ -39,12 +46,14 @@ jobs:
   bdd:
     needs: pytest
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           python-version: "3.12"
+          enable-cache: true
       - name: Install dependencies
         run: uv sync --dev --frozen
       - name: Pull Liquibase image
