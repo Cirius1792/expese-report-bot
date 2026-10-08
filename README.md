@@ -109,6 +109,24 @@ uv run expense-extract --user-id 123 --db test.db extract-from-image receipt.jpg
 uv run expense-extract extract-from-text "lunch 15.50 eur at Mario's Pizzeria on 2026-07-10"
 ```
 
+## Database migrations
+
+Schema ownership belongs to Liquibase (ADR 0013). The changelog is
+`db/changelog/db.changelog.xml`; applied changesets are recorded in
+`databasechangelog`. Add future schema changes as new changesets rather than
+editing existing ones.
+
+For local development and tests, put the project wrapper on your `PATH` — it
+runs the official Liquibase 4.33.0 Docker image, which bundles the SQLite JDBC
+driver, so no CLI install and no driver jars are required:
+
+```bash
+export PATH="$PWD/scripts:$PATH"
+```
+
+The Docker entrypoint and `expense-extract` run `liquibase update` before
+opening SQLite.
+
 ## Docker Deployment
 
 For instructions on deploying the bot using Docker Compose, see [Docker Deployment Guide](docs/how-to-deploy-docker.md).

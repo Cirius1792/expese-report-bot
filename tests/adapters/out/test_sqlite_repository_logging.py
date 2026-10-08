@@ -7,8 +7,11 @@ log messages without leaking sensitive data.
 from __future__ import annotations
 
 import logging
+import subprocess
+import tempfile
 from datetime import date, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -27,14 +30,28 @@ def _setup_logging() -> None:
     logging.basicConfig(level=logging.DEBUG, force=True)
 
 
+def migrated_db() -> str:
+    db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    db.close()
+    subprocess.run(
+        [
+            "liquibase",
+            "update",
+            f"--url=jdbc:sqlite:{db.name}",
+            "--changelog-file=db/changelog/db.changelog.xml",
+        ],
+        cwd=Path(__file__).parents[2],
+        check=True,
+    )
+    return db.name
+
+
 @pytest.fixture
 def repo() -> "SqliteExpenseRepository":
-    """Create a fresh in-memory repository for each test."""
-    from expense_report.adapters.out.sqlite_repository import (
-        SqliteExpenseRepository,
-    )
+    """Create a fresh Liquibase-migrated repository for each test."""
+    from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-    return SqliteExpenseRepository(":memory:")
+    return SqliteExpenseRepository(migrated_db())
 
 
 class TestInitLogging:
@@ -48,7 +65,7 @@ class TestInitLogging:
             SqliteExpenseRepository,
         )
 
-        SqliteExpenseRepository(":memory:")
+        SqliteExpenseRepository(migrated_db())
 
         records = [r for r in caplog.records if r.levelno >= logging.INFO]
         messages = " ".join(r.message for r in records)
@@ -83,7 +100,7 @@ class TestSaveLogging:
             SqliteExpenseRepository,
         )
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(migrated_db())
         repo.save(expense)
 
         records = [r for r in caplog.records if r.levelno >= logging.INFO]
@@ -110,7 +127,7 @@ class TestSaveLogging:
             SqliteExpenseRepository,
         )
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(migrated_db())
         saved = repo.save(expense)
 
         assert saved.id is not None
@@ -144,7 +161,7 @@ class TestGetByIdLogging:
             SqliteExpenseRepository,
         )
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(migrated_db())
         repo.save(expense)
         repo.get_by_id(42)
 
@@ -162,7 +179,7 @@ class TestGetByIdLogging:
             SqliteExpenseRepository,
         )
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(migrated_db())
         repo.get_by_id(99999)
 
         records = [r for r in caplog.records if r.levelno >= logging.INFO]
@@ -183,7 +200,7 @@ class TestGetByUserAndMonthLogging:
             SqliteExpenseRepository,
         )
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(migrated_db())
 
         # Save two expenses
         repo.save(

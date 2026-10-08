@@ -1,0 +1,54 @@
+#!/bin/sh
+# Project wrapper for the Liquibase CLI (ADR 0013).
+#
+# Runs the official Liquibase 4.33.0 Docker image, which bundles the SQLite
+# JDBC driver — no driver jars are committed to the repo and no `--classpath`
+# is needed. (Liquibase 5.x dropped bundled drivers and relies on the
+# unreliable `lpm` package manager; see ADR 0013.)
+#
+# Used by the test suite, BDD scenarios, the expense-extract CLI, and local
+# development — no CLI install required.
+#
+# Contract (matches the real CLI):
+#   liquibase update --url=jdbc:sqlite:<path> --changelog-file=db/changelog/db.changelog.xml
+set -u
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+# Resolve repo root: prefer explicit env var, then CWD, then script's parent.
+if [ -n "${LIQUIBASE_REPO_ROOT:-}" ]; then
+    REPO_ROOT="$LIQUIBASE_REPO_ROOT"
+elif [ -f "$(pwd)/db/changelog/db.changelog.xml" ]; then
+    REPO_ROOT=$(pwd)
+else
+    REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+fi
+
+URL=$(printf '%s\n' "$@" | sed -n 's/.*--url=jdbc:sqlite:\([^ ]*\).*/\1/p')
+if [ -z "$URL" ]; then
+    echo "liquibase wrapper: only --url=jdbc:sqlite:<path> is supported" >&2
+    exit 2
+fi
+
+NAME=$(basename "$URL")
+STAGE="${LIQUIBASE_SHIM_DIR:-/tmp/liquibase-shim}"
+mkdir -p "$STAGE"
+chmod 777 "$STAGE" 2>/dev/null || true
+rm -f "$STAGE/$NAME"
+if [ -f "$URL" ]; then
+    cp "$URL" "$STAGE/$NAME"
+else
+    : > "$STAGE/$NAME"
+fi
+chmod 666 "$STAGE/$NAME"
+
+IMAGE="${LIQUIBASE_IMAGE:-liquibase/liquibase:4.33.0}"
+docker run --rm \
+    -v "$STAGE":/dbshim \
+    -v "$REPO_ROOT":/work:ro \
+    --entrypoint sh \
+    "$IMAGE" \
+    -c "liquibase --validate-xml-changelog-files=false --searchPath=/work update --url=jdbc:sqlite:/dbshim/$NAME --changelog-file=db/changelog/db.changelog.xml"
+rc=$?
+cp -f "$STAGE/$NAME" "$URL" 2>/dev/null || true
+exit $rc

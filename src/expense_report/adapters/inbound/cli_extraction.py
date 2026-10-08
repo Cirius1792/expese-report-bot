@@ -12,6 +12,8 @@ ExpenseRecordingUseCase driving port in ONE_SHOT mode.
 from __future__ import annotations
 
 import argparse
+import subprocess
+from pathlib import Path
 
 from expense_report.domain.models import ExtractionResult
 from expense_report.domain.source_types import SourceType
@@ -91,6 +93,18 @@ def main() -> None:
         RecordExpense,
         RecordingMode,
         SourceRejected,
+    )
+
+    repo_root = Path(__file__).resolve().parents[4]
+    subprocess.run(
+        [
+            "liquibase",
+            "update",
+            f"--url=jdbc:sqlite:{args.db}",
+            "--changelog-file=db/changelog/db.changelog.xml",
+        ],
+        cwd=repo_root,
+        check=True,
     )
 
     extractor = DspyExtractionAdapter()

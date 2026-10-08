@@ -17,6 +17,11 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: uv sync --dev --frozen
+      - name: Install Liquibase
+        run: |
+          docker pull liquibase/liquibase:4.33.0
+          sudo cp scripts/liquibase /usr/local/bin/liquibase
+          sudo chmod +x /usr/local/bin/liquibase
       - name: Run unit tests
         run: uv run pytest --cov=expense_report
       - name: Upload coverage data
@@ -37,6 +42,11 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: uv sync --dev --frozen
+      - name: Install Liquibase
+        run: |
+          docker pull liquibase/liquibase:4.33.0
+          sudo cp scripts/liquibase /usr/local/bin/liquibase
+          sudo chmod +x /usr/local/bin/liquibase
       - name: Run BDD tests
         run: uv run behave
 

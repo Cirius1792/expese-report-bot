@@ -30,6 +30,9 @@ Thumbs.db
 # Generated BDD output (behave `format = pretty`)
 pretty.output
 
+# Local SQLite databases (expense-extract defaults to --db expenses.db)
+*.db
+
 # Docker runtime
 .env.deploy
 data/

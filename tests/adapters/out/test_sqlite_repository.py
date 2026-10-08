@@ -1,9 +1,12 @@
-"""Tests for SqliteExpenseRepository using in-memory SQLite."""
+"""Tests for SqliteExpenseRepository using Liquibase-migrated SQLite files."""
 
 from __future__ import annotations
 
+import subprocess
+import tempfile
 from datetime import date, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -14,14 +17,29 @@ import pytest
 from expense_report.domain.models import Expense
 
 
+def migrated_db() -> str:
+    """Create a temporary database using the production changelog."""
+    db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    db.close()
+    subprocess.run(
+        [
+            "liquibase",
+            "update",
+            f"--url=jdbc:sqlite:{db.name}",
+            "--changelog-file=db/changelog/db.changelog.xml",
+        ],
+        cwd=Path(__file__).parents[2],
+        check=True,
+    )
+    return db.name
+
+
 @pytest.fixture
 def repo() -> "SqliteExpenseRepository":
-    """Create a fresh in-memory repository for each test."""
-    from expense_report.adapters.out.sqlite_repository import (
-        SqliteExpenseRepository,
-    )
+    """Create a fresh Liquibase-migrated repository for each test."""
+    from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-    return SqliteExpenseRepository(":memory:")
+    return SqliteExpenseRepository(migrated_db())
 
 
 class TestSave:
@@ -281,7 +299,7 @@ class TestGetMonthsWithExpenses:
         """Queries across a year and returns only months that have expenses."""
         from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(migrated_db())
         user_id = 12345
 
         # Seed: July (2 expenses), March (1 expense), no other months
@@ -311,7 +329,7 @@ class TestGetMonthsWithExpenses:
         """Returns empty set for a user with no expenses in that year."""
         from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(migrated_db())
         result = repo.get_months_with_expenses(99999, 2026)
         assert result == set()
 
@@ -319,7 +337,7 @@ class TestGetMonthsWithExpenses:
         """Each user sees only their own months."""
         from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(migrated_db())
 
         repo.save(
             Expense(
@@ -355,7 +373,7 @@ class TestGetMonthsWithExpenses:
         """Querying 2025 returns months only from 2025, not 2026."""
         from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(migrated_db())
 
         repo.save(
             Expense(
@@ -467,7 +485,7 @@ class TestGetTotalByUserAndYear:
         """Returns the sum of all expense amounts for a user in a year."""
         from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(migrated_db())
         user_id = 12345
 
         for expense_date, amount in [
@@ -496,7 +514,7 @@ class TestGetTotalByUserAndYear:
         """Returns Decimal 0.00 when no expenses exist for the user/year."""
         from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(migrated_db())
         result = repo.get_total_by_user_and_year(99999, 2026)
         assert result == Decimal("0.00")
 
@@ -504,7 +522,7 @@ class TestGetTotalByUserAndYear:
         """Each user's total is independent."""
         from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(migrated_db())
 
         repo.save(
             Expense(
@@ -540,7 +558,7 @@ class TestGetTotalByUserAndYear:
         """Only sums expenses from the specified year."""
         from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(migrated_db())
 
         repo.save(
             Expense(
@@ -575,7 +593,7 @@ class TestGetTotalByUserAndYear:
         """Sums like 0.10 + 0.20 return exact 0.30, not floating-point error."""
         from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(migrated_db())
 
         for expense_date, amount in [
             ("2026-07-01", "0.10"),
@@ -717,49 +735,3 @@ class TestLogicalDeletion:
         ).fetchone()
         assert row is not None
         assert row["deleted_at"] is not None
-
-
-class TestSchemaMigration:
-    """Schema migration for pre-existing databases (no deleted_at column)."""
-
-    def test_existing_db_without_deleted_at_migrates(self, tmp_path) -> None:
-        """A DB created with the old schema gains deleted_at; rows read as live."""
-        import sqlite3
-
-        from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
-
-        db_file = tmp_path / "legacy.db"
-        conn = sqlite3.connect(db_file)
-        conn.execute(
-            """
-            CREATE TABLE expenses (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                amount TEXT NOT NULL,
-                currency TEXT NOT NULL,
-                merchant TEXT NOT NULL,
-                date TEXT NOT NULL,
-                category TEXT,
-                user_id INTEGER NOT NULL,
-                receipt_photo_id TEXT,
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            "INSERT INTO expenses"
-            " (amount, currency, merchant, date, category, user_id, receipt_photo_id, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            ("10.00", "EUR", "Legacy Shop", "2026-07-01", None, 42, None, "2026-07-01T12:00:00"),
-        )
-        conn.commit()
-        conn.close()
-
-        repo = SqliteExpenseRepository(str(db_file))
-
-        cols = {row[1] for row in repo._conn.execute("PRAGMA table_info(expenses)").fetchall()}
-        assert "deleted_at" in cols
-
-        expenses = repo.get_by_user_and_month(user_id=42, year=2026, month=7)
-        assert len(expenses) == 1
-        assert expenses[0].merchant == "Legacy Shop"
-        assert expenses[0].deleted_at is None

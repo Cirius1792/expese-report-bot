@@ -12,8 +12,30 @@ collaborators (domain entities, repository, correction store) are real.
 
 from __future__ import annotations
 
+import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock
+
+import pytest
+
+
+@pytest.fixture(scope="session")
+def migrated_database(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """Provide one session-scoped SQLite file migrated by Liquibase."""
+    db_path = tmp_path_factory.mktemp("liquibase") / "expenses.db"
+    repo_root = Path(__file__).parents[1]
+    subprocess.run(
+        [
+            "liquibase",
+            "update",
+            f"--url=jdbc:sqlite:{db_path}",
+            "--changelog-file=db/changelog/db.changelog.xml",
+        ],
+        cwd=repo_root,
+        check=True,
+    )
+    return str(db_path)
 
 
 class _MockChainOfThought:

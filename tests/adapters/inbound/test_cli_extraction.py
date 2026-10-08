@@ -111,7 +111,7 @@ class TestMainSociable:
             "LLM_API_KEY": "test-key",
             "LLM_MODEL": "test-model",
         },
-        clear=True,
+        clear=False,
     )
     @patch("dspy.ChainOfThought")
     @patch("expense_report.application.expense_recording.datetime")
@@ -184,7 +184,7 @@ class TestMainSociable:
             "LLM_API_KEY": "test-key",
             "LLM_MODEL": "test-model",
         },
-        clear=True,
+        clear=False,
     )
     @patch("expense_report.adapters.out.dspy_extraction.OpenAI")
     @patch("PIL.Image.open")
@@ -268,7 +268,7 @@ class TestMainSociable:
             "LLM_API_KEY": "test-key",
             "LLM_MODEL": "test-model",
         },
-        clear=True,
+        clear=False,
     )
     def test_text_flow_translates_arguments_to_record_command(self) -> None:
         """extract-from-text constructs correct RecordExpense command via use case."""
@@ -505,7 +505,7 @@ class TestMainSociable:
             "LLM_API_KEY": "test-key",
             "LLM_MODEL": "test-model",
         },
-        clear=True,
+        clear=False,
     )
     @patch("expense_report.adapters.out.dspy_extraction.OpenAI")
     @patch("PIL.Image.open")
