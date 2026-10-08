@@ -14,10 +14,14 @@ No `src/` changes. Badge URLs use the repo name exactly as `expese-report-bot`
   served from `https://raw.githubusercontent.com/<owner>/<repo>/refs/heads/main/coverage.svg`.
 - Badges are placed in a centered block directly below the `<h1 align="center">`
   heading, before the intro paragraph, matching the README's existing centered style.
-- `unit-tests` CI job runs `uv run pytest --cov=expense_report` and uploads the
-  `.coverage` file as an artifact named `coverage-data` (`include-hidden-files: true`).
-- A new `generate-badge` CI job:
-  - depends on `bdd-tests` (badge only advances when the **entire** CI is green),
+- `ci.yml` delegates the test run to the reusable `.github/workflows/tests.yml`
+  (`upload-coverage: true`), whose `pytest` job runs
+  `uv run pytest -o addopts="" --cov=expense_report` (full profile, ADR 0014) and
+  uploads the `.coverage` file as an artifact named `coverage-data`
+  (`include-hidden-files: true`).
+- A `generate-badge` CI job:
+  - depends on the reusable tests workflow (badge only advances when the
+    **entire** CI is green),
   - runs only on `push` to `refs/heads/main` (`if:` guard — never on PR heads),
   - has `permissions: contents: write`,
   - downloads the `coverage-data` artifact, installs `coverage-badge` locally
@@ -40,7 +44,9 @@ No `src/` changes. Badge URLs use the repo name exactly as `expese-report-bot`
 
 ## Behaviors that must NOT happen
 
-- `ci.yml` is **not** renamed; `bdd-tests` behavior is unchanged.
+- `ci.yml` is **not** renamed; the README badge URL keeps working. Its test
+  jobs move into the reusable `tests.yml`, but the coverage artifact and the
+  `generate-badge` contract are unchanged.
 - No third-party coverage service (Codecov, Coveralls, …).
 - README branding is untouched (logo, H1, intro — see `readme-branding.md`).
 - No `coverage.svg` committed on the feature branch (D8).

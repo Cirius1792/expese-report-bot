@@ -138,10 +138,16 @@ For instructions on deploying the bot using Docker Compose, see [Docker Deployme
 ## Running Tests
 
 ```bash
-# Unit/integration tests (pytest)
+# Hermetic unit tests (no Docker) — the default profile
 uv run pytest
 
-# BDD acceptance tests (Behave)
+# Full suite: unit + integration (needs Docker + liquibase/liquibase:4.33.0)
+uv run pytest -o addopts=""
+
+# Integration tests only
+uv run pytest -o addopts="" -m integration
+
+# BDD acceptance tests (Behave; needs Docker)
 uv run behave
 ```
 
@@ -162,7 +168,7 @@ Configuration: `.pre-commit-config.yaml` (framework), `.gitleaks.toml` (allowlis
 uv run ruff format     # code formatting
 uv run ruff check      # linting
 uv run ty check        # type checking
-uv run pytest          # unit/integration tests
+uv run pytest -o addopts=""   # full test suite (unit + integration)
 uv run behave          # BDD scenarios
 ```
 

@@ -38,10 +38,15 @@ def test_dockerfile_bases_on_bundled_driver_image_without_lib_copy() -> None:
     assert "COPY lib/" not in dockerfile
 
 
-def test_ci_pins_bundled_driver_image() -> None:
-    ci = _read(".github/workflows/ci.yml")
-    assert f"docker pull {LIQUIBASE_IMAGE}" in ci
-    assert "liquibase/liquibase:5.0.4" not in ci
+def _workflows_text() -> str:
+    workflows = REPO_ROOT / ".github" / "workflows"
+    return "\n".join(path.read_text(encoding="utf-8") for path in sorted(workflows.glob("*.yml")))
+
+
+def test_workflows_pin_bundled_driver_image() -> None:
+    workflows = _workflows_text()
+    assert f"docker pull {LIQUIBASE_IMAGE}" in workflows
+    assert "liquibase/liquibase:5.0.4" not in workflows
 
 
 def test_no_committed_driver_jars() -> None:

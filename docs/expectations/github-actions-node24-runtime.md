@@ -10,12 +10,13 @@ Node.js 24"). All actions in `.github/workflows/` must target Node 24.
 
 ### Happy path
 
-- E1. Every `uses:` reference in `ci.yml` and `release.yml` targets a Node 24
-  runtime (verified against upstream `action.yml`). Floating major tags
-  (`checkout@v7`, `login-action@v4`, `metadata-action@v6`,
-  `build-push-action@v7`, `action-gh-release@v3`) and the immutable
-  SHA-pinned `setup-uv` (`c771a70e # v9.0.0`) are all Node 24.
-- E2. `ci.yml` runs green on `main` after the bump (unit-tests, bdd-tests).
+- E1. Every `uses:` reference in `ci.yml`, `release.yml` and the reusable
+  `tests.yml` targets a Node 24 runtime (verified against upstream
+  `action.yml`). Floating major tags (`checkout@v7`, `login-action@v4`,
+  `metadata-action@v6`, `build-push-action@v7`, `action-gh-release@v3`) and the
+  immutable SHA-pinned `setup-uv` (`c771a70e # v9.0.0`) are all Node 24.
+- E2. `ci.yml` runs green on `main` after the bump (its reusable `pytest` and
+  `bdd` jobs).
 - E3. The CI run log contains no "Node.js 20 is deprecated" warning for any
   action in the workflow.
 

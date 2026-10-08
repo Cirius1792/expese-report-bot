@@ -8,7 +8,7 @@
 - `SqliteExpenseRepository` opens a migrated database and all port operations (save, get_by_id, get_by_user_and_month, get_months_with_expenses, get_total_by_user_and_year, delete_by_id) work unchanged.
 - The container entrypoint script runs `liquibase update` against `EXPENSE_DB_PATH` and only then `exec`s the bot; the bot process ends up as the container's main process.
 - The `expense-extract` CLI runs `liquibase update` against its `--db` path before opening the repository, so it works against both fresh and pre-existing database files.
-- CI pulls the Liquibase 4.33.0 image and puts the `scripts/liquibase` wrapper on PATH; the full unit + BDD suites pass with the real changelog applied to test databases.
+- CI and the release pipeline call the reusable `.github/workflows/tests.yml`, which pulls the Liquibase 4.33.0 image and runs the full pytest profile (`uv run pytest -o addopts=""`, unit + integration) plus BDD; the wrapper is resolved by absolute path, never copied onto `PATH`.
 - The test suite is split by capability: a plain `uv run pytest` runs the hermetic unit suite (no Docker, no `liquibase` on `PATH`) and passes; `uv run pytest -o addopts=""` runs the full suite including integration tests; `uv run pytest -o addopts="" -m integration` runs only the integration tests and fails loudly with an actionable message when Docker is unavailable.
 - The Docker image embeds the Liquibase CLI (official 4.33.0 image base, which bundles the SQLite JDBC driver) and the entrypoint script; `docker build` succeeds.
 
@@ -38,6 +38,7 @@
 - Pytest: `tests/migrations/test_schema_snapshot.py::test_snapshot_matches_changelog` (integration) proves the generated snapshot still equals the changelog output.
 - Pytest: `tests/adapters/out/test_sqlite_repository*.py` and `tests/adapters/inbound/test_cli_extraction.py` pass as hermetic unit tests, proving the adapter is unchanged in behavior with schema ownership removed.
 - Behave: `uv run behave` passes with the migrated-database environment.
+- Pytest: `tests/migrations/test_ci_workflows.py` proves both CI and release call the reusable tests workflow, that it runs the full profile and BDD, and that no workflow falls back to a bare `uv run pytest` or copies the wrapper onto `PATH`.
 - Shell: the entrypoint script is executed (or its logic mirrored in a test) proving migration-then-exec ordering and non-zero exit on migration failure.
 - Docker: `docker build` succeeds with the Liquibase CLI embedded (build output pasted as evidence).
 - Full verification: `uvx ruff format`, `uvx ruff check`, `uvx ty check`, `uv run pytest`, `uv run behave`.

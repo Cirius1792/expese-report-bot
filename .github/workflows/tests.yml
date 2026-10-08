@@ -1,0 +1,53 @@
+name: Tests
+
+# Reusable test contract (ADR 0014). Both ci.yml and release.yml call this so
+# the split-profile commands live in exactly one place: a bare `uv run pytest`
+# runs the hermetic unit profile only, and would silently drop the integration
+# tests and the snapshot drift guard.
+on:
+  workflow_call:
+    inputs:
+      upload-coverage:
+        description: "Upload the .coverage artifact for the coverage-badge job"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: uv sync --dev --frozen
+      - name: Pull Liquibase image
+        run: docker pull liquibase/liquibase:4.33.0
+      - name: Run full test suite (unit + integration)
+        run: uv run pytest -o addopts="" --cov=expense_report
+      - name: Upload coverage data
+        if: inputs.upload-coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-data
+          path: .coverage
+          include-hidden-files: true
+
+  bdd:
+    needs: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: uv sync --dev --frozen
+      - name: Pull Liquibase image
+        run: docker pull liquibase/liquibase:4.33.0
+      - name: Run BDD tests
+        run: uv run behave
