@@ -8,13 +8,19 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).parents[2]
 
-INTEGRATION_TESTS = (
-    "test_fresh_database_gets_schema_and_tracking_tables",
-    "test_snapshot_matches_changelog",
+# Every Docker-dependent test, named explicitly: losing one marker must fail here.
+EXPECTED_INTEGRATION: frozenset[str] = frozenset(
+    {
+        "tests/migrations/test_changelog.py::test_fresh_database_gets_schema_and_tracking_tables",
+        "tests/migrations/test_changelog.py::test_reapplying_changelog_is_no_op",
+        "tests/migrations/test_changelog.py::test_legacy_database_gains_deleted_at_without_losing_rows",
+        "tests/migrations/test_changelog.py::test_current_schema_database_is_baselined_without_data_loss",
+        "tests/migrations/test_schema_snapshot.py::test_snapshot_matches_changelog",
+    }
 )
 
 
-def _collect(*args: str) -> str:
+def _collect(*args: str) -> set[str]:
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "--collect-only", "-q", *args],
         cwd=REPO_ROOT,
@@ -23,18 +29,18 @@ def _collect(*args: str) -> str:
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    return result.stdout
+    return {
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.startswith("tests/") and "::" in line
+    }
 
 
 def test_default_profile_deselects_integration() -> None:
-    """A plain `pytest` run must not collect the Docker-dependent tests."""
-    collected = _collect()
-    for test_name in INTEGRATION_TESTS:
-        assert test_name not in collected
+    """A plain `pytest` run must not collect any Docker-dependent test."""
+    assert _collect() & EXPECTED_INTEGRATION == set()
 
 
-def test_integration_profile_selects_integration() -> None:
-    """The integration profile collects the Docker-dependent tests."""
-    collected = _collect("-o", "addopts=", "-m", "integration")
-    for test_name in INTEGRATION_TESTS:
-        assert test_name in collected
+def test_integration_profile_selects_exactly_the_expected_tests() -> None:
+    """The integration profile collects every Docker-dependent test, and nothing else."""
+    assert _collect("-o", "addopts=", "-m", "integration") == EXPECTED_INTEGRATION

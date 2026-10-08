@@ -12,9 +12,9 @@ ExpenseRecordingUseCase driving port in ONE_SHOT mode.
 from __future__ import annotations
 
 import argparse
-import subprocess
 from pathlib import Path
 
+from expense_report.adapters.out.liquibase_migration import ensure_database_migrated
 from expense_report.domain.models import ExtractionResult
 from expense_report.domain.source_types import SourceType
 
@@ -73,21 +73,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def ensure_database_migrated(db_path: str) -> None:
-    """Run `liquibase update` so the schema is current before the DB is opened (ADR 0013)."""
-    repo_root = Path(__file__).resolve().parents[4]
-    subprocess.run(
-        [
-            "liquibase",
-            "update",
-            f"--url=jdbc:sqlite:{db_path}",
-            "--changelog-file=db/changelog/db.changelog.xml",
-        ],
-        cwd=repo_root,
-        check=True,
-    )
-
-
 def main() -> None:
     """Main entry point for the CLI."""
     parser = build_parser()
@@ -110,10 +95,13 @@ def main() -> None:
         SourceRejected,
     )
 
-    ensure_database_migrated(args.db)
+    # Resolve once: the migration runs with the repository root as its working
+    # directory, so both steps must use the same absolute path.
+    db_path = str(Path(args.db).resolve())
+    ensure_database_migrated(db_path)
 
     extractor = DspyExtractionAdapter()
-    repo = SqliteExpenseRepository(args.db)
+    repo = SqliteExpenseRepository(db_path)
     preparation = SourcePreparationAdapter()
     expense_recording = ExpenseRecordingUseCase(preparation, extractor, repo, CorrectionStore())
 

@@ -46,9 +46,11 @@ That produced two defects:
 3. **The changelog remains the single source of truth.**
    `tests/_schema/expenses.sql` is a **generated** artifact — dumped from a real
    migration by `uv run python -m tests._schema --write` — and is legitimate
-   only while `tests/migrations/test_schema_snapshot.py` proves it byte-identical
-   to the changelog's output. A hand-edited snapshot, or a changelog change
-   without regeneration, fails that test.
+   only while `tests/migrations/test_schema_snapshot.py` proves it identical to
+   the changelog's output. The artifact covers every application-owned schema
+   object (tables, indexes, triggers, views — Liquibase's own tracking tables
+   excluded) and embeds the changelog's SHA-256, so a changelog edit without
+   regeneration fails **hermetically**, before the integration comparison runs.
 
 4. **The wrapper is resolved by absolute path** (`<repo>/scripts/liquibase`) in
    tests — never through `PATH`. Production keeps invoking `liquibase` from the

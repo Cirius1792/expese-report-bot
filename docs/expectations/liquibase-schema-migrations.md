@@ -23,7 +23,7 @@
 ## Behaviors that must NOT happen
 
 - `SqliteExpenseRepository` must not create, alter, or migrate any schema. No `CREATE TABLE`, `ALTER TABLE`, or `PRAGMA table_info`-driven migration code remains in the adapter.
-- No **hand-authored** schema definition may exist. Test and BDD databases obtain the schema either by running the changelog, or from `tests/_schema/expenses.sql` — a **generated** artifact that `tests/migrations/test_schema_snapshot.py` proves identical to the changelog output. (Deliberate exception: `tests/migrations/test_changelog.py` recreates a **legacy** pre-`deleted_at` schema to prove the upgrade path.)
+- No **hand-authored** schema definition may exist. Test and BDD databases obtain the schema either by running the changelog, or from `tests/_schema/expenses.sql` — a **generated** artifact that covers every application-owned schema object and embeds the changelog's SHA-256, so `tests/migrations/test_schema_snapshot.py` fails hermetically on any changelog edit until the artifact is regenerated (and fails against the real changelog output in the integration profile). (Deliberate exception: `tests/migrations/test_changelog.py` recreates a **legacy** pre-`deleted_at` schema to prove the upgrade path.)
 - The bot must not start if `liquibase update` fails (the entrypoint exits non-zero before the bot process is launched).
 - Applied changesets must never be edited in place; new schema changes are new changesets appended to the changelog.
 - The `databasechangelog` / `databasechangeloglock` tables must not be dropped, renamed, or modified by application code.
