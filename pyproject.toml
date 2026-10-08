@@ -47,6 +47,9 @@ rules = { call-non-callable = "ignore", invalid-type-form = "ignore", possibly-m
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: requires Docker and the pinned Liquibase image (liquibase/liquibase:4.33.0)",
+]
 
 [project.scripts]
 expense-extract = "expense_report.adapters.inbound.cli_extraction:main"
