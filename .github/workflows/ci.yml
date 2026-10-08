@@ -7,42 +7,21 @@ on:
     branches: [main]
 
 jobs:
-  unit-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          python-version: "3.12"
-      - name: Install dependencies
-        run: uv sync --dev --frozen
-      - name: Run unit tests
-        run: uv run pytest --cov=expense_report
-      - name: Upload coverage data
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-data
-          path: .coverage
-          include-hidden-files: true
-
-  bdd-tests:
-    runs-on: ubuntu-latest
-    needs: unit-tests
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          python-version: "3.12"
-      - name: Install dependencies
-        run: uv sync --dev --frozen
-      - name: Run BDD tests
-        run: uv run behave
+  tests:
+    uses: ./.github/workflows/tests.yml
+    with:
+      upload-coverage: true
+    # Test code runs with a read-only token (the default can be read-write).
+    permissions:
+      contents: read
+    # Cancel superseded runs on the same ref so rapid pushes do not pile up.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
 
   generate-badge:
     runs-on: ubuntu-latest
-    needs: bdd-tests
+    needs: tests
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write

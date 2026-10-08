@@ -9,16 +9,10 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING
 
 import pytest
 
 from expense_report.domain.models import Expense
-
-if TYPE_CHECKING:
-    from expense_report.adapters.out.sqlite_repository import (
-        SqliteExpenseRepository,
-    )
 
 
 @pytest.fixture(autouse=True)
@@ -27,20 +21,10 @@ def _setup_logging() -> None:
     logging.basicConfig(level=logging.DEBUG, force=True)
 
 
-@pytest.fixture
-def repo() -> "SqliteExpenseRepository":
-    """Create a fresh in-memory repository for each test."""
-    from expense_report.adapters.out.sqlite_repository import (
-        SqliteExpenseRepository,
-    )
-
-    return SqliteExpenseRepository(":memory:")
-
-
 class TestInitLogging:
     """Verify SQLite initialization produces operational logs."""
 
-    def test_init_logs_db_path(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_init_logs_db_path(self, caplog: pytest.LogCaptureFixture, snapshot_db: str) -> None:
         """Repository init logs the database path at INFO."""
         caplog.set_level(logging.INFO)
 
@@ -48,7 +32,7 @@ class TestInitLogging:
             SqliteExpenseRepository,
         )
 
-        SqliteExpenseRepository(":memory:")
+        SqliteExpenseRepository(snapshot_db)
 
         records = [r for r in caplog.records if r.levelno >= logging.INFO]
         messages = " ".join(r.message for r in records)
@@ -63,7 +47,7 @@ class TestInitLogging:
 class TestSaveLogging:
     """Verify save operations produce operational logs."""
 
-    def test_save_logs_expense_id(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_save_logs_expense_id(self, caplog: pytest.LogCaptureFixture, snapshot_db: str) -> None:
         """Save logs the expense id at INFO."""
         caplog.set_level(logging.INFO)
 
@@ -83,14 +67,16 @@ class TestSaveLogging:
             SqliteExpenseRepository,
         )
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(snapshot_db)
         repo.save(expense)
 
         records = [r for r in caplog.records if r.levelno >= logging.INFO]
         messages = " ".join(r.message for r in records)
         assert "99" in messages, f"No log with expense id '99' in: {records}"
 
-    def test_save_logs_newly_assigned_id(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_save_logs_newly_assigned_id(
+        self, caplog: pytest.LogCaptureFixture, snapshot_db: str
+    ) -> None:
         """Save with id=None logs the newly assigned integer id at INFO."""
         caplog.set_level(logging.INFO)
 
@@ -110,7 +96,7 @@ class TestSaveLogging:
             SqliteExpenseRepository,
         )
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(snapshot_db)
         saved = repo.save(expense)
 
         assert saved.id is not None
@@ -124,7 +110,7 @@ class TestSaveLogging:
 class TestGetByIdLogging:
     """Verify get_by_id operations produce operational logs."""
 
-    def test_get_by_id_logs_found(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_get_by_id_logs_found(self, caplog: pytest.LogCaptureFixture, snapshot_db: str) -> None:
         """get_by_id when found logs at INFO."""
         caplog.set_level(logging.INFO)
 
@@ -144,7 +130,7 @@ class TestGetByIdLogging:
             SqliteExpenseRepository,
         )
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(snapshot_db)
         repo.save(expense)
         repo.get_by_id(42)
 
@@ -154,7 +140,9 @@ class TestGetByIdLogging:
             f"No log with id '42' found. Captured: {[r.message for r in records]}"
         )
 
-    def test_get_by_id_logs_not_found(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_get_by_id_logs_not_found(
+        self, caplog: pytest.LogCaptureFixture, snapshot_db: str
+    ) -> None:
         """get_by_id when not found logs at INFO or DEBUG."""
         caplog.set_level(logging.INFO)
 
@@ -162,7 +150,7 @@ class TestGetByIdLogging:
             SqliteExpenseRepository,
         )
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(snapshot_db)
         repo.get_by_id(99999)
 
         records = [r for r in caplog.records if r.levelno >= logging.INFO]
@@ -175,7 +163,9 @@ class TestGetByIdLogging:
 class TestGetByUserAndMonthLogging:
     """Verify get_by_user_and_month operations produce operational logs."""
 
-    def test_get_by_user_and_month_logs_count(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_get_by_user_and_month_logs_count(
+        self, caplog: pytest.LogCaptureFixture, snapshot_db: str
+    ) -> None:
         """Query logs expense count at INFO."""
         caplog.set_level(logging.INFO)
 
@@ -183,7 +173,7 @@ class TestGetByUserAndMonthLogging:
             SqliteExpenseRepository,
         )
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(snapshot_db)
 
         # Save two expenses
         repo.save(

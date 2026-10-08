@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+
+    <changeSet id="001-create-expenses" author="expense-report">
+        <sql>
+            CREATE TABLE IF NOT EXISTS expenses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                amount TEXT NOT NULL,
+                currency TEXT NOT NULL,
+                merchant TEXT NOT NULL,
+                date TEXT NOT NULL,
+                category TEXT,
+                user_id INTEGER NOT NULL,
+                receipt_photo_id TEXT,
+                created_at TEXT NOT NULL,
+                deleted_at TEXT
+            );
+        </sql>
+    </changeSet>
+
+    <changeSet id="002-add-deleted-at" author="expense-report">
+        <preconditions onFail="MARK_RAN" onError="HALT">
+            <not>
+                <sqlCheck expectedResult="1">SELECT CASE WHEN EXISTS (SELECT 1 FROM pragma_table_info('expenses') WHERE name = 'deleted_at') THEN '1' ELSE '0' END</sqlCheck>
+            </not>
+        </preconditions>
+        <sql>ALTER TABLE expenses ADD COLUMN deleted_at TEXT</sql>
+    </changeSet>
+
+</databaseChangeLog>

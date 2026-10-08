@@ -27,19 +27,10 @@ jobs:
 
   tests:
     needs: validate-version
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          python-version: "3.12"
-      - name: Install dependencies
-        run: uv sync --dev --frozen
-      - name: Run unit tests
-        run: uv run pytest
-      - name: Run BDD tests
-        run: uv run behave
+    uses: ./.github/workflows/tests.yml
+    # Test code runs with a read-only token (the default can be read-write).
+    permissions:
+      contents: read
 
   build-push:
     needs: tests

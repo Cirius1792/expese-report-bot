@@ -123,6 +123,9 @@ class TestMainStartsLogging:
             audit.verify_writable.side_effect = lambda: call_order.append("audit_verify")
             return audit
 
+        def migrate_database(*args: object, **kwargs: object) -> None:
+            call_order.append("migrate")
+
         def register_authorization_guard(*args: object, **kwargs: object) -> None:
             call_order.append("register_authorization_guard")
 
@@ -170,6 +173,11 @@ class TestMainStartsLogging:
             patch.object(main_module, "UnauthorizedAttemptAudit", side_effect=build_audit),
             patch.object(
                 main_module,
+                "ensure_database_migrated",
+                side_effect=migrate_database,
+            ),
+            patch.object(
+                main_module,
                 "register_authorization_guard",
                 side_effect=register_authorization_guard,
             ),
@@ -207,6 +215,7 @@ class TestMainStartsLogging:
             "load_authorized_users",
             "audit",
             "audit_verify",
+            "migrate",  # ADR 0013: migrate before opening the database
             "extraction_adapter",
             "repository",
             "preparation_adapter",

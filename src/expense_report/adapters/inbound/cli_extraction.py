@@ -12,7 +12,9 @@ ExpenseRecordingUseCase driving port in ONE_SHOT mode.
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
+from expense_report.adapters.out.liquibase_migration import ensure_database_migrated
 from expense_report.domain.models import ExtractionResult
 from expense_report.domain.source_types import SourceType
 
@@ -93,8 +95,13 @@ def main() -> None:
         SourceRejected,
     )
 
+    # Resolve once: the migration runs with the repository root as its working
+    # directory, so both steps must use the same absolute path.
+    db_path = str(Path(args.db).resolve())
+    ensure_database_migrated(db_path)
+
     extractor = DspyExtractionAdapter()
-    repo = SqliteExpenseRepository(args.db)
+    repo = SqliteExpenseRepository(db_path)
     preparation = SourcePreparationAdapter()
     expense_recording = ExpenseRecordingUseCase(preparation, extractor, repo, CorrectionStore())
 

@@ -19,6 +19,16 @@ import pytest
 from PIL import Image
 
 
+@pytest.fixture(autouse=True)
+def _stub_real_migration(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip the real `liquibase update`; the schema comes from the snapshot (ADR 0014)."""
+    monkeypatch.setattr(
+        "expense_report.adapters.inbound.cli_extraction.ensure_database_migrated",
+        lambda db_path: None,
+        raising=True,
+    )
+
+
 def _make_pdf(num_pages: int) -> bytes:
     """Generate an in-memory multi-page PDF with Pillow (no binary fixtures)."""
     buf = BytesIO()
@@ -111,7 +121,7 @@ class TestMainSociable:
             "LLM_API_KEY": "test-key",
             "LLM_MODEL": "test-model",
         },
-        clear=True,
+        clear=False,
     )
     @patch("dspy.ChainOfThought")
     @patch("expense_report.application.expense_recording.datetime")
@@ -120,7 +130,7 @@ class TestMainSociable:
         mock_dt: MagicMock,
         mock_chain: MagicMock,
         capsys: Any,
-        tmp_path: Any,
+        snapshot_db: str,
     ) -> None:
         """extract-from-text prints extraction result and saves to the database."""
         # Arrange: configure chain of thought to return a complete prediction
@@ -132,7 +142,7 @@ class TestMainSociable:
         mock_prediction.category = "food"
         mock_chain.return_value = MagicMock(return_value=mock_prediction)
 
-        db_path = str(tmp_path / "test.db")
+        db_path = snapshot_db
 
         from expense_report.adapters.inbound.cli_extraction import main
 
@@ -184,7 +194,7 @@ class TestMainSociable:
             "LLM_API_KEY": "test-key",
             "LLM_MODEL": "test-model",
         },
-        clear=True,
+        clear=False,
     )
     @patch("expense_report.adapters.out.dspy_extraction.OpenAI")
     @patch("PIL.Image.open")
@@ -196,6 +206,7 @@ class TestMainSociable:
         mock_openai_cls: MagicMock,
         capsys: Any,
         tmp_path: Any,
+        snapshot_db: str,
     ) -> None:
         """extract-from-image loads image bytes, extracts, and saves to database."""
         # Arrange: mock PIL image processing
@@ -223,7 +234,7 @@ class TestMainSociable:
         # Create a fake image file
         image_path = tmp_path / "receipt.jpg"
         image_path.write_bytes(b"fake-image-content")
-        db_path = str(tmp_path / "test.db")
+        db_path = snapshot_db
 
         from expense_report.adapters.inbound.cli_extraction import main
 
@@ -268,7 +279,7 @@ class TestMainSociable:
             "LLM_API_KEY": "test-key",
             "LLM_MODEL": "test-model",
         },
-        clear=True,
+        clear=False,
     )
     def test_text_flow_translates_arguments_to_record_command(self) -> None:
         """extract-from-text constructs correct RecordExpense command via use case."""
@@ -505,7 +516,7 @@ class TestMainSociable:
             "LLM_API_KEY": "test-key",
             "LLM_MODEL": "test-model",
         },
-        clear=True,
+        clear=False,
     )
     @patch("expense_report.adapters.out.dspy_extraction.OpenAI")
     @patch("PIL.Image.open")
@@ -517,6 +528,7 @@ class TestMainSociable:
         mock_openai_cls: MagicMock,
         capsys: Any,
         tmp_path: Any,
+        snapshot_db: str,
     ) -> None:
         """extract-from-pdf renders the PDF, extracts, and saves to the database.
 
@@ -550,7 +562,7 @@ class TestMainSociable:
         # Two-page PDF written to disk; renderable by real pypdfium2
         pdf_path = tmp_path / "receipt.pdf"
         pdf_path.write_bytes(_make_pdf(2))
-        db_path = str(tmp_path / "test.db")
+        db_path = snapshot_db
 
         from expense_report.adapters.inbound.cli_extraction import main
 

@@ -8,13 +8,17 @@
 ## Commands
 > Source: pyproject.toml — run all after every change; show output as evidence
 
+> Note: `uv run pytest` runs the hermetic **unit** suite; the Liquibase-dependent **integration** tests are opted in with `-o addopts="" -m integration`, and `-o addopts=""` runs everything (ADR 0014).
+
 | Task | Command | ~Time |
 |------|---------|-------|
 | Format | `uvx ruff format` | ~2s |
 | Lint | `uvx ruff check` | ~3s |
 | Typecheck | `uvx ty check` | ~5s |
 | Test (single) | `uv run pytest tests/path/to/test.py::test_name` | ~2s |
-| Test (all) | `uv run pytest` | ~30s |
+| Test (unit) | `uv run pytest` | ~12s |
+| Test (integration) | `uv run pytest -o addopts="" -m integration` | ~20s |
+| Test (all) | `uv run pytest -o addopts=""` | ~30s |
 
 > If commands fail, verify against pyproject.toml or ask user to update.
 
@@ -39,7 +43,7 @@ If `pre-commit install` hasn't been run, stop and run it before any other work.
 ## EDD Evidence Rules
 - Evidence must be **executed**, not generative: paste actual command output, not descriptions of what you think happens.
 - If a code path can't be executed in-loop (e.g., Telegram API), show the test covering it plus explicit reasoning for the gap.
-- Every task ends with: (a) full `uv run pytest` output, (b) explicit mapping of expectations → evidence.
+- Every task ends with: (a) full `uv run pytest -o addopts=""` output, (b) explicit mapping of expectations → evidence.
 
 ## Subagent Delegation (Divide & Conquer)
 
@@ -63,7 +67,7 @@ The main agent is an **orchestrator**. For any task requiring multi-step work:
 - **Red first**: never write implementation before a failing test.
 - Tests live in `tests/` mirroring `src/` structure.
 - One assertion per test where practical; name tests as `test_<behavior>_<outcome>`.
-- After every implementation change, run `uvx ruff format && uvx ruff check && uvx ty check && uv run pytest`.
+- After every implementation change, run `uvx ruff format && uvx ruff check && uvx ty check && uv run pytest -o addopts=""`.
 
 ## File Map
 ```
@@ -93,7 +97,7 @@ docs/
 
 ### Always Do
 - **Ensure pre-commit is installed** (`uv run pre-commit install`). If missing, install it first.
-- Run `uvx ruff format && uvx ruff check && uvx ty check && uv run pytest` after every change
+- Run `uvx ruff format && uvx ruff check && uvx ty check && uv run pytest -o addopts=""` after every change
 - Paste actual command output as evidence — never paraphrase test results
 - Write expectations before implementation
 - Follow hexagonal boundaries: domain has zero framework/IO imports

@@ -20,46 +20,13 @@ class SqliteExpenseRepository:
     """Persists and retrieves Expense records using SQLite.
 
     Args:
-        db_path: Path to the SQLite database file. Use ':memory:' for tests.
+        db_path: Path to a SQLite database file that has already been migrated.
     """
 
     def __init__(self, db_path: str) -> None:
         logger.info("Initializing SQLite repository at %s", db_path)
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._create_table()
-
-    def _create_table(self) -> None:
-        """Create the expenses table if it doesn't exist.
-
-        Pre-existing tables (without the deleted_at column) are migrated in
-        place with ALTER TABLE; existing rows read as not-deleted.
-        """
-        self._conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS expenses (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                amount TEXT NOT NULL,
-                currency TEXT NOT NULL,
-                merchant TEXT NOT NULL,
-                date TEXT NOT NULL,
-                category TEXT,
-                user_id INTEGER NOT NULL,
-                receipt_photo_id TEXT,
-                created_at TEXT NOT NULL,
-                deleted_at TEXT
-            )
-            """
-        )
-        self._migrate_schema()
-        self._conn.commit()
-
-    def _migrate_schema(self) -> None:
-        """Add the deleted_at column to tables created before ADR 0011."""
-        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(expenses)")}
-        if "deleted_at" not in columns:
-            logger.info("Migrating expenses table: adding deleted_at column")
-            self._conn.execute("ALTER TABLE expenses ADD COLUMN deleted_at TEXT")
 
     def save(self, expense: Expense) -> Expense:
         """Persist an expense record.

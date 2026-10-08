@@ -1,4 +1,4 @@
-"""Tests for SqliteExpenseRepository using in-memory SQLite."""
+"""Tests for SqliteExpenseRepository backed by the generated schema snapshot."""
 
 from __future__ import annotations
 
@@ -9,19 +9,16 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-import pytest
 
 from expense_report.domain.models import Expense
 
 
-@pytest.fixture
-def repo() -> "SqliteExpenseRepository":
-    """Create a fresh in-memory repository for each test."""
-    from expense_report.adapters.out.sqlite_repository import (
-        SqliteExpenseRepository,
-    )
+def test_repository_fixture_needs_no_liquibase(snapshot_db: str) -> None:
+    """The repository fixture builds its DB from the snapshot, not from Liquibase."""
+    from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-    return SqliteExpenseRepository(":memory:")
+    repo = SqliteExpenseRepository(snapshot_db)
+    assert repo.get_by_user_and_month(user_id=1, year=2026, month=1) == []
 
 
 class TestSave:
@@ -277,11 +274,11 @@ class TestSerialization:
 class TestGetMonthsWithExpenses:
     """Tests for get_months_with_expenses query."""
 
-    def test_returns_months_with_expenses(self) -> None:
+    def test_returns_months_with_expenses(self, snapshot_db: str) -> None:
         """Queries across a year and returns only months that have expenses."""
         from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(snapshot_db)
         user_id = 12345
 
         # Seed: July (2 expenses), March (1 expense), no other months
@@ -307,19 +304,19 @@ class TestGetMonthsWithExpenses:
         result = repo.get_months_with_expenses(user_id, 2026)
         assert result == {3, 7}
 
-    def test_returns_empty_set_when_no_expenses(self) -> None:
+    def test_returns_empty_set_when_no_expenses(self, snapshot_db: str) -> None:
         """Returns empty set for a user with no expenses in that year."""
         from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(snapshot_db)
         result = repo.get_months_with_expenses(99999, 2026)
         assert result == set()
 
-    def test_multi_user_isolation(self) -> None:
+    def test_multi_user_isolation(self, snapshot_db: str) -> None:
         """Each user sees only their own months."""
         from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(snapshot_db)
 
         repo.save(
             Expense(
@@ -351,11 +348,11 @@ class TestGetMonthsWithExpenses:
         assert repo.get_months_with_expenses(123, 2026) == {7}
         assert repo.get_months_with_expenses(456, 2026) == {3}
 
-    def test_different_years_returned_separately(self) -> None:
+    def test_different_years_returned_separately(self, snapshot_db: str) -> None:
         """Querying 2025 returns months only from 2025, not 2026."""
         from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(snapshot_db)
 
         repo.save(
             Expense(
@@ -463,11 +460,11 @@ class TestDeleteById:
 class TestGetTotalByUserAndYear:
     """Tests for get_total_by_user_and_year query."""
 
-    def test_sums_all_expenses_in_year(self) -> None:
+    def test_sums_all_expenses_in_year(self, snapshot_db: str) -> None:
         """Returns the sum of all expense amounts for a user in a year."""
         from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(snapshot_db)
         user_id = 12345
 
         for expense_date, amount in [
@@ -492,19 +489,19 @@ class TestGetTotalByUserAndYear:
         result = repo.get_total_by_user_and_year(user_id, 2026)
         assert result == Decimal("85.00")
 
-    def test_returns_zero_when_no_expenses(self) -> None:
+    def test_returns_zero_when_no_expenses(self, snapshot_db: str) -> None:
         """Returns Decimal 0.00 when no expenses exist for the user/year."""
         from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(snapshot_db)
         result = repo.get_total_by_user_and_year(99999, 2026)
         assert result == Decimal("0.00")
 
-    def test_multi_user_isolation(self) -> None:
+    def test_multi_user_isolation(self, snapshot_db: str) -> None:
         """Each user's total is independent."""
         from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(snapshot_db)
 
         repo.save(
             Expense(
@@ -536,11 +533,11 @@ class TestGetTotalByUserAndYear:
         assert repo.get_total_by_user_and_year(123, 2026) == Decimal("50.00")
         assert repo.get_total_by_user_and_year(456, 2026) == Decimal("30.00")
 
-    def test_only_sums_requested_year(self) -> None:
+    def test_only_sums_requested_year(self, snapshot_db: str) -> None:
         """Only sums expenses from the specified year."""
         from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(snapshot_db)
 
         repo.save(
             Expense(
@@ -571,11 +568,11 @@ class TestGetTotalByUserAndYear:
 
         assert repo.get_total_by_user_and_year(123, 2026) == Decimal("100.00")
 
-    def test_handles_floating_point_sensitive_values(self) -> None:
+    def test_handles_floating_point_sensitive_values(self, snapshot_db: str) -> None:
         """Sums like 0.10 + 0.20 return exact 0.30, not floating-point error."""
         from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 
-        repo = SqliteExpenseRepository(":memory:")
+        repo = SqliteExpenseRepository(snapshot_db)
 
         for expense_date, amount in [
             ("2026-07-01", "0.10"),
@@ -717,49 +714,3 @@ class TestLogicalDeletion:
         ).fetchone()
         assert row is not None
         assert row["deleted_at"] is not None
-
-
-class TestSchemaMigration:
-    """Schema migration for pre-existing databases (no deleted_at column)."""
-
-    def test_existing_db_without_deleted_at_migrates(self, tmp_path) -> None:
-        """A DB created with the old schema gains deleted_at; rows read as live."""
-        import sqlite3
-
-        from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
-
-        db_file = tmp_path / "legacy.db"
-        conn = sqlite3.connect(db_file)
-        conn.execute(
-            """
-            CREATE TABLE expenses (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                amount TEXT NOT NULL,
-                currency TEXT NOT NULL,
-                merchant TEXT NOT NULL,
-                date TEXT NOT NULL,
-                category TEXT,
-                user_id INTEGER NOT NULL,
-                receipt_photo_id TEXT,
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            "INSERT INTO expenses"
-            " (amount, currency, merchant, date, category, user_id, receipt_photo_id, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            ("10.00", "EUR", "Legacy Shop", "2026-07-01", None, 42, None, "2026-07-01T12:00:00"),
-        )
-        conn.commit()
-        conn.close()
-
-        repo = SqliteExpenseRepository(str(db_file))
-
-        cols = {row[1] for row in repo._conn.execute("PRAGMA table_info(expenses)").fetchall()}
-        assert "deleted_at" in cols
-
-        expenses = repo.get_by_user_and_month(user_id=42, year=2026, month=7)
-        assert len(expenses) == 1
-        assert expenses[0].merchant == "Legacy Shop"
-        assert expenses[0].deleted_at is None
