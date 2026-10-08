@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-import subprocess
+import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
@@ -152,10 +152,21 @@ mock_ext.ContextTypes = mock_context_types
 _sys.modules["telegram"] = mock_telegram
 _sys.modules["telegram.ext"] = mock_ext
 
+# Schema provisioning seam (ADR 0014): the migration helper is resolved by
+# absolute path, never through PATH. The BDD CLI scenarios also exercise the
+# *production* entry point, which resolves `liquibase` from PATH as it does in
+# the image — so the harness provides it here rather than relying on the
+# developer's shell.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+os.environ["PATH"] = os.pathsep.join([str(_REPO_ROOT / "scripts"), os.environ.get("PATH", "")])
+
 # -- Now safe to import project modules --  # noqa: E402
 from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository  # noqa: E402
 from expense_report.application.correction_state import CorrectionStore  # noqa: E402
 from expense_report.application.expense_queries import ExpenseQueryUseCase  # noqa: E402
+from tests._schema import migrate_with_liquibase  # noqa: E402
 
 
 def before_all(context: "behave.runner.Context") -> None:
@@ -170,16 +181,7 @@ def before_all(context: "behave.runner.Context") -> None:
     db_dir = TemporaryDirectory()
     context.database_tempdir = db_dir
     context.database_path = str(Path(db_dir.name) / "expenses.db")
-    subprocess.run(
-        [
-            "liquibase",
-            "update",
-            f"--url=jdbc:sqlite:{context.database_path}",
-            "--changelog-file=db/changelog/db.changelog.xml",
-        ],
-        cwd=Path(__file__).parents[1],
-        check=True,
-    )
+    migrate_with_liquibase(Path(context.database_path))
 
 
 def before_scenario(context: "behave.runner.Context", scenario: "behave.model.Scenario") -> None:

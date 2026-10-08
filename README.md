@@ -116,13 +116,17 @@ Schema ownership belongs to Liquibase (ADR 0013). The changelog is
 `databasechangelog`. Add future schema changes as new changesets rather than
 editing existing ones.
 
-For local development and tests, put the project wrapper on your `PATH` — it
-runs the official Liquibase 4.33.0 Docker image, which bundles the SQLite JDBC
-driver, so no CLI install and no driver jars are required:
+To run `liquibase` or `expense-extract` by hand, put the project wrapper on your
+`PATH` — it runs the official Liquibase 4.33.0 Docker image, which bundles the
+SQLite JDBC driver, so no CLI install and no driver jars are required:
 
 ```bash
 export PATH="$PWD/scripts:$PATH"
 ```
+
+The test suite does not need that `PATH` export: it resolves the wrapper by
+absolute path, and `uv run pytest` runs only the hermetic unit tests — add
+`-o addopts=""` to include the Liquibase-dependent integration tests (ADR 0014).
 
 The Docker entrypoint and `expense-extract` run `liquibase update` before
 opening SQLite.

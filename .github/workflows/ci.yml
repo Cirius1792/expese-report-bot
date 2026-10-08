@@ -23,7 +23,7 @@ jobs:
           sudo cp scripts/liquibase /usr/local/bin/liquibase
           sudo chmod +x /usr/local/bin/liquibase
       - name: Run unit tests
-        run: uv run pytest --cov=expense_report
+        run: uv run pytest -o addopts="" --cov=expense_report
       - name: Upload coverage data
         uses: actions/upload-artifact@v4
         with:

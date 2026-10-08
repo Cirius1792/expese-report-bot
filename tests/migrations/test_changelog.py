@@ -3,27 +3,18 @@
 from __future__ import annotations
 
 import sqlite3
-import subprocess
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).parents[2]
-CHANGELOG = "db/changelog/db.changelog.xml"
+import pytest
 
+from tests._schema import migrate_with_liquibase
 
-def run_update(db: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["liquibase", "update", f"--url=jdbc:sqlite:{db}", f"--changelog-file={CHANGELOG}"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        capture_output=True,
-    )
+pytestmark = pytest.mark.integration
 
 
 def test_fresh_database_gets_schema_and_tracking_tables(tmp_path: Path) -> None:
     db = tmp_path / "fresh.db"
-    result = run_update(db)
-    assert result.returncode == 0
+    migrate_with_liquibase(db)
     with sqlite3.connect(db) as connection:
         tables = {
             row[0]
@@ -38,10 +29,10 @@ def test_fresh_database_gets_schema_and_tracking_tables(tmp_path: Path) -> None:
 
 def test_reapplying_changelog_is_no_op(tmp_path: Path) -> None:
     db = tmp_path / "repeat.db"
-    run_update(db)
+    migrate_with_liquibase(db)
     with sqlite3.connect(db) as connection:
         before = connection.execute("SELECT COUNT(*) FROM databasechangelog").fetchone()[0]
-    run_update(db)
+    migrate_with_liquibase(db)
     with sqlite3.connect(db) as connection:
         after = connection.execute("SELECT COUNT(*) FROM databasechangelog").fetchone()[0]
     assert after == before == 2
@@ -72,7 +63,7 @@ def test_legacy_database_gains_deleted_at_without_losing_rows(tmp_path: Path) ->
             ("10.00", "EUR", "Legacy Shop", "2026-07-01", 42, "2026-07-01T12:00:00"),
         )
         connection.commit()
-    run_update(db)
+    migrate_with_liquibase(db)
     with sqlite3.connect(db) as connection:
         row = connection.execute("SELECT merchant, deleted_at FROM expenses").fetchone()
         assert row == ("Legacy Shop", None)
