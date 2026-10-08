@@ -12,30 +12,33 @@ collaborators (domain entities, repository, correction store) are real.
 
 from __future__ import annotations
 
-import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
 
+from tests._schema import apply_snapshot
 
-@pytest.fixture(scope="session")
-def migrated_database(tmp_path_factory: pytest.TempPathFactory) -> str:
-    """Provide one session-scoped SQLite file migrated by Liquibase."""
-    db_path = tmp_path_factory.mktemp("liquibase") / "expenses.db"
-    repo_root = Path(__file__).parents[1]
-    subprocess.run(
-        [
-            "liquibase",
-            "update",
-            f"--url=jdbc:sqlite:{db_path}",
-            "--changelog-file=db/changelog/db.changelog.xml",
-        ],
-        cwd=repo_root,
-        check=True,
-    )
+if TYPE_CHECKING:
+    from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
+
+
+@pytest.fixture
+def snapshot_db(tmp_path: Path) -> str:
+    """A fresh database carrying the generated schema snapshot (no Docker)."""
+    db_path = tmp_path / "expenses.db"
+    apply_snapshot(db_path)
     return str(db_path)
+
+
+@pytest.fixture
+def repo(snapshot_db: str) -> SqliteExpenseRepository:
+    """A repository backed by the schema snapshot (hermetic; no Docker)."""
+    from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
+
+    return SqliteExpenseRepository(snapshot_db)
 
 
 class _MockChainOfThought:
