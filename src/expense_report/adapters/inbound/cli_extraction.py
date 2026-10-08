@@ -73,6 +73,21 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def ensure_database_migrated(db_path: str) -> None:
+    """Run `liquibase update` so the schema is current before the DB is opened (ADR 0013)."""
+    repo_root = Path(__file__).resolve().parents[4]
+    subprocess.run(
+        [
+            "liquibase",
+            "update",
+            f"--url=jdbc:sqlite:{db_path}",
+            "--changelog-file=db/changelog/db.changelog.xml",
+        ],
+        cwd=repo_root,
+        check=True,
+    )
+
+
 def main() -> None:
     """Main entry point for the CLI."""
     parser = build_parser()
@@ -95,17 +110,7 @@ def main() -> None:
         SourceRejected,
     )
 
-    repo_root = Path(__file__).resolve().parents[4]
-    subprocess.run(
-        [
-            "liquibase",
-            "update",
-            f"--url=jdbc:sqlite:{args.db}",
-            "--changelog-file=db/changelog/db.changelog.xml",
-        ],
-        cwd=repo_root,
-        check=True,
-    )
+    ensure_database_migrated(args.db)
 
     extractor = DspyExtractionAdapter()
     repo = SqliteExpenseRepository(args.db)
