@@ -65,6 +65,7 @@ image `liquibase/liquibase:4.33.0`, SQLite driver bundled).
 | Fresh DB creates `expenses` + tracking tables | `pytest tests/migrations/` → `test_fresh_database_gets_schema_and_tracking_tables` PASS; manual image run → 10-column `expenses` + `DATABASECHANGELOG` + `DATABASECHANGELOGLOCK` |
 | Re-run is a no-op | `test_reapplying_changelog_is_no_op` PASS; manual re-run → "Database is up to date, no changesets to execute" |
 | Legacy DB upgraded, rows preserved | `test_legacy_database_gains_deleted_at_without_losing_rows` PASS; real container run on mounted legacy DB → `deleted_at` added, row `7.77/SmokeShop` intact, 2 changelog rows |
+| Real prior release upgrades in place | `scripts/upgrade-probe/run.sh` PASS: released `ghcr.io/cirius1792/spencer-bot:0.7.0` CLI seeded 2 rows (dspy LLM stubbed), PR image's real entrypoint added `deleted_at` + 2 changesets, rows intact, read back through PR repository |
 | Repository ops unchanged | `tests/adapters/out/test_sqlite_repository*.py` PASS |
 | Container migrates then execs bot | `docker build` succeeds; container logs show `liquibase update` success, `ps` shows `expense-bot` as **PID 1** (PPID 0) |
 | Migration failure blocks the bot | read-only `/data` run → `SQLITE_READONLY`, exit 1, **no bot process** |
