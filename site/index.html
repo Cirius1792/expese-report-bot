@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>(ex)SpenserBot — your expenses, extracted</title>
+  <meta name="description" content="A self-hosted Telegram bot that turns receipt photos, PDFs, and plain text into structured expenses with LLM-powered extraction. Monthly CSV reports, per-user isolation, Docker deployment.">
+  <link rel="icon" type="image/png" href="assets/logo.png">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="nav-brand" href="index.html"><img src="assets/logo.png" alt="(ex)SpenserBot logo"> (ex)SpenserBot</a>
+    <div class="nav-links">
+      <a href="index.html" class="active">Home</a>
+      <a href="docs/index.html">Docs</a>
+      <a href="https://github.com/Cirius1792/expese-report-bot" class="external">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="container">
+    <img class="logo" src="assets/logo.png" alt="(ex)SpenserBot logo">
+    <h1>Your expenses, extracted.</h1>
+    <p class="tagline">Snap a receipt. Type a sentence. Get a clean expense log.</p>
+    <p class="sub">(ex)SpenserBot is a self-hosted Telegram bot that turns receipt photos, PDFs, and free text into structured expenses — amount, currency, merchant, date, category — using LLM-powered extraction.</p>
+    <div class="btn-row">
+      <a class="btn btn-primary" href="docs/deployment.html">Self-host it</a>
+      <a class="btn btn-secondary" href="https://github.com/Cirius1792/expese-report-bot">View source</a>
+    </div>
+    <div class="hero-badges">
+      <a href="https://github.com/Cirius1792/expese-report-bot/actions/workflows/ci.yml"><img src="https://github.com/Cirius1792/expese-report-bot/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+      <a href="https://github.com/Cirius1792/expese-report-bot"><img src="https://raw.githubusercontent.com/Cirius1792/expese-report-bot/refs/heads/main/coverage.svg" alt="Test coverage"></a>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="container">
+    <div class="section-head"><h2>Features</h2></div>
+    <p class="section-sub">Everything between "I spent money" and "here's the CSV for accounting".</p>
+    <div class="grid grid-3">
+      <div class="card">
+        <div class="icon">📸</div>
+        <h3>Receipt photo extraction</h3>
+        <p>Send a photo of any receipt — paper or digital — and get amount, currency, merchant, date, and category extracted automatically.</p>
+      </div>
+      <div class="card">
+        <div class="icon">📄</div>
+        <h3>PDF receipts</h3>
+        <p>Long invoices? Send a PDF of 1–5 pages. Multi-page documents are treated as a single receipt.</p>
+      </div>
+      <div class="card">
+        <div class="icon">✍️</div>
+        <h3>Free-text logging</h3>
+        <p>No receipt? Just type <em>"lunch 15.50 eur at Mario's Pizzeria"</em> — ideal for cash expenses. The LLM structures it for you.</p>
+      </div>
+      <div class="card">
+        <div class="icon">🔁</div>
+        <h3>Correction loop</h3>
+        <p>If the extraction is missing something, the bot tells you exactly what and asks for it. You can refine up to 3 times before it gives up gracefully.</p>
+      </div>
+      <div class="card">
+        <div class="icon">📊</div>
+        <h3>Monthly CSV reports</h3>
+        <p><code>/report</code> exports the current month as a ready-to-use CSV for accounting, reimbursement, or tax prep.</p>
+      </div>
+      <div class="card">
+        <div class="icon">🗑️</div>
+        <h3>Delete with audit trail</h3>
+        <p>Remove mistakes by command or from the inline delete button. Deletions are tracked, not silently erased.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="container">
+    <div class="section-head"><h2>Use cases</h2></div>
+    <p class="section-sub">Built for anyone who chases receipts after the fact.</p>
+    <div class="grid grid-4">
+      <div class="card">
+        <div class="icon">🧳</div>
+        <h3>Travel &amp; business trips</h3>
+        <p>Log every trip expense on the go, export the month, send it to finance for reimbursement.</p>
+      </div>
+      <div class="card">
+        <div class="icon">🏠</div>
+        <h3>Personal budgeting</h3>
+        <p>Browse spending by month and year with <code>/list</code>, see totals at a glance, spot where the money goes.</p>
+      </div>
+      <div class="card">
+        <div class="icon">🧾</div>
+        <h3>Freelancer tax prep</h3>
+        <p>Multi-currency by design — expenses keep their original currency, no forced conversion. One clean CSV at the end of the year.</p>
+      </div>
+      <div class="card">
+        <div class="icon">👥</div>
+        <h3>Small teams</h3>
+        <p>Every user sees only their own expenses. A whitelist controls who can use the bot at all.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="section-head"><h2>How it works</h2></div>
+    <p class="section-sub">From "spent money" to saved record in four steps.</p>
+    <div class="steps">
+      <div class="step">
+        <h3>Send</h3>
+        <p>Message the bot on Telegram with a receipt photo, a PDF (≤5 pages), or a plain-text description.</p>
+      </div>
+      <div class="step">
+        <h3>Extract</h3>
+        <p>An LLM extracts amount, currency, merchant, date, and a suggested category from your input.</p>
+      </div>
+      <div class="step">
+        <h3>Confirm or correct</h3>
+        <p>The bot confirms what it understood — or asks for the missing fields. You reply, it refines (up to 3 rounds).</p>
+      </div>
+      <div class="step">
+        <h3>Report</h3>
+        <p>Browse with <code>/list</code>, export with <code>/report</code>. Your monthly CSV is ready for accounting.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="container">
+    <div class="section-head"><h2>Commands &amp; buttons</h2></div>
+    <p class="section-sub">Everything is one tap away — type a command or use the button bar below the input field.</p>
+    <table>
+      <thead>
+        <tr><th>Command / button</th><th>What it does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>/start</code> · ❓ Help</td><td>Welcome message and usage instructions</td></tr>
+        <tr><td><code>/add</code> · ➕ Add</td><td>How to track a new expense (photo, PDF, or text)</td></tr>
+        <tr><td><code>/list</code> · ☰ List</td><td>Browse your expenses by month and year, with totals and navigation buttons</td></tr>
+        <tr><td><code>/report</code> · 📄 Report</td><td>Get the current month's expenses as a CSV file</td></tr>
+        <tr><td><code>/delete &lt;id&gt;</code></td><td>Delete a saved expense by its number</td></tr>
+        <tr><td><code>/remove</code> · 🗑 Remove</td><td>How to delete an expense</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="section-head"><h2>Your data stays yours</h2></div>
+    <p class="section-sub">(ex)SpenserBot is self-hosted — no cloud middleman, no data leaving your server.</p>
+    <div class="strip">
+      <div class="card">
+        <div class="icon">🔒</div>
+        <h3>Self-hosted storage</h3>
+        <p>Expenses live in a SQLite database on your machine. You can inspect, back up, or wipe it anytime.</p>
+      </div>
+      <div class="card">
+        <div class="icon">👤</div>
+        <h3>Per-user isolation</h3>
+        <p>Each Telegram user sees and manages only their own expenses. No cross-user leaks, ever.</p>
+      </div>
+      <div class="card">
+        <div class="icon">✅</div>
+        <h3>Whitelist &amp; audit</h3>
+        <p>Only Telegram user IDs on your whitelist can use the bot. Unauthorized attempts are logged, not processed.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container footer-inner">
+    <div>(ex)SpenserBot · <a href="https://github.com/Cirius1792/expese-report-bot">GitHub</a> · <a href="docs/index.html">Documentation</a></div>
+    <div>MIT License · by Ciro Lucio Tecce</div>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Configuration — (ex)SpenserBot</title>
+  <meta name="description" content="(ex)SpenserBot configuration reference: environment variables, user authorization whitelist, audit logging, and data storage.">
+  <link rel="icon" type="image/png" href="../assets/logo.png">
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="nav-brand" href="../index.html"><img src="../assets/logo.png" alt="(ex)SpenserBot logo"> (ex)SpenserBot</a>
+    <div class="nav-links">
+      <a href="../index.html">Home</a>
+      <a href="index.html">Getting started</a>
+      <a href="deployment.html">Deployment</a>
+      <a href="configuration.html" class="active">Configuration</a>
+      <a href="https://github.com/Cirius1792/expese-report-bot" class="external">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="docs-hero">
+  <div class="container">
+    <p class="breadcrumb"><a href="../index.html">Home</a> / <a href="index.html">Documentation</a> / Configuration</p>
+    <h1>Configuration reference</h1>
+    <p>All configuration is environment variables plus one JSON whitelist file. Nothing else.</p>
+  </div>
+</header>
+
+<section>
+  <div class="container">
+    <article>
+      <h2>Environment variables</h2>
+      <table>
+        <thead>
+          <tr><th>Variable</th><th>Required</th><th>Default</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>TELEGRAM_BOT_TOKEN</code></td><td>Yes</td><td>—</td><td>Bot token from @BotFather</td></tr>
+          <tr><td><code>LLM_BASE_URL</code></td><td>Yes</td><td>—</td><td>Any OpenAI-compatible endpoint, e.g. <code>https://api.openai.com/v1</code></td></tr>
+          <tr><td><code>LLM_API_KEY</code></td><td>Yes</td><td>—</td><td>API key for the LLM endpoint</td></tr>
+          <tr><td><code>LLM_MODEL</code></td><td>Yes</td><td>—</td><td>Model name your endpoint supports (use a vision-capable model for receipt photos)</td></tr>
+          <tr><td><code>EXPENSE_DB_PATH</code></td><td>No</td><td><code>expenses.db</code></td><td>SQLite database location</td></tr>
+          <tr><td><code>AUTHORIZED_USERS_CONFIG_PATH</code></td><td>Recommended</td><td>—</td><td>Path to the JSON whitelist of Telegram user IDs. In Docker: <code>/data/authorized-users.json</code></td></tr>
+          <tr><td><code>UNAUTHORIZED_LOG_PATH</code></td><td>No</td><td>beside <code>EXPENSE_DB_PATH</code></td><td>Dedicated audit file for unauthorized access attempts</td></tr>
+        </tbody>
+      </table>
+
+      <h2>User authorization</h2>
+      <p>Only Telegram user IDs listed in the whitelist can interact with the bot. Everyone else is <strong>silently ignored</strong> and recorded in the audit log.</p>
+      <pre><code><span class="c"># authorized-users.json</span>
+{
+  "authorized_users": ["123456789"]
+}</code></pre>
+      <p>Values must be <strong>numeric strings</strong>. Find your own ID by messaging <a href="https://t.me/userinfobot">@userinfobot</a>.</p>
+
+      <h3>Startup failure behavior</h3>
+      <table>
+        <thead>
+          <tr><th>Situation</th><th>Behavior</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Path not set, file missing, or file unreadable</td><td>Bot starts with <em>no</em> authorized users and logs a warning</td></tr>
+          <tr><td>Valid JSON, invalid schema</td><td>Bot starts with <em>no</em> authorized users and logs a warning</td></tr>
+          <tr><td>Malformed JSON</td><td><strong>Startup fails</strong></td></tr>
+          <tr><td>Audit log not writable</td><td><strong>Startup fails</strong></td></tr>
+        </tbody>
+      </table>
+
+      <h3>Audit log</h3>
+      <p>Each unauthorized attempt appends one line:</p>
+      <pre><code>2026-07-19T12:00:00Z user_id=987654321</code></pre>
+
+      <h2>Data &amp; privacy</h2>
+      <ul>
+        <li><strong>Storage</strong> — a single SQLite file. Amounts are stored as exact decimal strings (no floating-point drift).</li>
+        <li><strong>User isolation</strong> — every read and write is scoped to the sender's Telegram user ID. A user can only see, report, and delete their own expenses.</li>
+        <li><strong>Multi-currency</strong> — expenses keep their original ISO 4217 currency. No conversion to a base currency is performed.</li>
+        <li><strong>Deletion</strong> — deleting an expense marks it as deleted (logical deletion) so records are auditable and IDs stay stable.</li>
+      </ul>
+
+      <h2>Example: local (non-Docker) run</h2>
+      <pre><code>cp .env.example .env
+uv sync
+uv run pre-commit install
+<span class="c"># fill in .env, create authorized-users.json, then:</span>
+uv run expense-bot</code></pre>
+    </article>
+  </div>
+</section>
+
+<footer>
+  <div class="container footer-inner">
+    <div>(ex)SpenserBot · <a href="https://github.com/Cirius1792/expese-report-bot">GitHub</a> · <a href="index.html">Documentation</a></div>
+    <div>MIT License · by Ciro Lucio Tecce</div>
+  </div>
+</footer>
+
+</body>
+</html>

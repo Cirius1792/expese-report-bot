@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Documentation — (ex)SpenserBot</title>
+  <meta name="description" content="Get (ex)SpenserBot running: prerequisites, setup steps, deployment with Docker, and configuration reference.">
+  <link rel="icon" type="image/png" href="../assets/logo.png">
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="nav-brand" href="../index.html"><img src="../assets/logo.png" alt="(ex)SpenserBot logo"> (ex)SpenserBot</a>
+    <div class="nav-links">
+      <a href="../index.html">Home</a>
+      <a href="index.html" class="active">Getting started</a>
+      <a href="deployment.html">Deployment</a>
+      <a href="configuration.html">Configuration</a>
+      <a href="https://github.com/Cirius1792/expese-report-bot" class="external">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="docs-hero">
+  <div class="container">
+    <p class="breadcrumb"><a href="../index.html">Home</a> / Documentation</p>
+    <h1>Getting started</h1>
+    <p>Everything you need to have (ex)SpenserBot running on your own server and accepting your first receipt.</p>
+  </div>
+</header>
+
+<section>
+  <div class="container">
+    <article>
+      <h2>What it is</h2>
+      <p>(ex)SpenserBot is a Telegram bot that extracts structured expense data — amount, currency, merchant, date, category — from <strong>receipt photos</strong>, <strong>PDF receipts</strong> (1–5 pages), and <strong>free-text messages</strong>, using an LLM for the extraction. Expenses are stored per user and can be exported as a monthly CSV.</p>
+      <p>It is fully self-hosted: a single Docker container, a SQLite database, and any OpenAI-compatible LLM endpoint.</p>
+
+      <h2>Prerequisites</h2>
+      <ul>
+        <li><strong>Telegram bot token</strong> — create a bot with <a href="https://t.me/BotFather">@BotFather</a> on Telegram and copy the token.</li>
+        <li><strong>LLM API access</strong> — any OpenAI-compatible endpoint works (OpenAI, Groq, Ollama, vLLM, LM Studio, …). You need a base URL, an API key, and a model name that supports the features you want (vision for receipt photos).</li>
+        <li><strong>Docker</strong> with the Compose plugin, on any machine that can reach Telegram and your LLM endpoint.</li>
+      </ul>
+
+      <h2>Setup in five steps</h2>
+      <ol>
+        <li><strong>Create the bot</strong> — talk to @BotFather, run <code>/newbot</code>, and keep the token safe.</li>
+        <li><strong>Clone the repository</strong> — <code>git clone git@github.com:Cirius1792/expese-report-bot.git</code></li>
+        <li><strong>Configure the environment</strong> — copy <code>.env.example</code> to <code>.env</code> and fill in your token, LLM credentials, and authorization paths. See the <a href="configuration.html">configuration reference</a>.</li>
+        <li><strong>Allow your user</strong> — create <code>authorized-users.json</code> with your Telegram user ID. Only whitelisted users can use the bot.</li>
+        <li><strong>Start it</strong> — <code>docker compose --env-file .env.deploy up -d</code>, then send <code>/start</code> to your bot on Telegram. Full instructions in the <a href="deployment.html">deployment guide</a>.</li>
+      </ol>
+
+      <h2>Where to go next</h2>
+      <div class="btn-row" style="justify-content: flex-start;">
+        <a class="btn btn-primary" href="deployment.html">Deployment guide</a>
+        <a class="btn btn-secondary" href="configuration.html">Configuration reference</a>
+      </div>
+
+      <div class="callout">Need your Telegram user ID? Message <a href="https://t.me/userinfobot">@userinfobot</a> on Telegram — it replies with your numeric ID, which is what goes into the whitelist.</div>
+    </article>
+  </div>
+</section>
+
+<footer>
+  <div class="container footer-inner">
+    <div>(ex)SpenserBot · <a href="https://github.com/Cirius1792/expese-report-bot">GitHub</a> · <a href="index.html">Documentation</a></div>
+    <div>MIT License · by Ciro Lucio Tecce</div>
+  </div>
+</footer>
+
+</body>
+</html>

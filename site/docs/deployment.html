@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deployment — (ex)SpenserBot</title>
+  <meta name="description" content="Deploy (ex)SpenserBot with Docker Compose: environment files, data persistence, authorization paths, and day-2 operations.">
+  <link rel="icon" type="image/png" href="../assets/logo.png">
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="nav-brand" href="../index.html"><img src="../assets/logo.png" alt="(ex)SpenserBot logo"> (ex)SpenserBot</a>
+    <div class="nav-links">
+      <a href="../index.html">Home</a>
+      <a href="index.html">Getting started</a>
+      <a href="deployment.html" class="active">Deployment</a>
+      <a href="configuration.html">Configuration</a>
+      <a href="https://github.com/Cirius1792/expese-report-bot" class="external">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="docs-hero">
+  <div class="container">
+    <p class="breadcrumb"><a href="../index.html">Home</a> / <a href="index.html">Documentation</a> / Deployment</p>
+    <h1>Deployment</h1>
+    <p>Run (ex)SpenserBot with Docker Compose on any machine that can reach Telegram and your LLM endpoint.</p>
+  </div>
+</header>
+
+<section>
+  <div class="container">
+    <article>
+      <h2>How the env files work</h2>
+      <p>The setup uses <strong>two separate env files</strong> for two different purposes:</p>
+      <table>
+        <thead>
+          <tr><th>File</th><th>Purpose</th><th>Used by</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>.env</code></td>
+            <td>Bot runtime variables: <code>TELEGRAM_BOT_TOKEN</code>, <code>LLM_*</code>, <code>AUTHORIZED_USERS_CONFIG_PATH</code>, …</td>
+            <td><code>docker-compose.yml</code> <code>env_file:</code> — injected into the running container</td>
+          </tr>
+          <tr>
+            <td><code>.env.deploy</code></td>
+            <td>Compose interpolation only: <code>${UID}</code>, <code>${GID}</code></td>
+            <td><code>--env-file .env.deploy</code> flag — resolved at <code>docker compose up</code> time, <em>not</em> passed to the container</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>Deployment steps</h2>
+      <pre><code><span class="c"># 1. Clone the repository</span>
+git clone git@github.com:Cirius1792/expese-report-bot.git
+cd expese-report-bot
+
+<span class="c"># 2. Runtime env file (for the container environment)</span>
+cp .env.example .env
+<span class="c"># edit .env with your Telegram token, LLM credentials, and authorization paths</span>
+
+<span class="c"># 3. Compose interpolation file (for host file ownership)</span>
+cp .env.deploy.example .env.deploy
+<span class="c"># edit UID/GID if your host user is not 1000:1000</span>
+
+<span class="c"># 4. Allow your user — whitelist file must be reachable at the
+<span class="c">#    container path set in .env (see below)</span>
+mkdir -p data
+echo '{"authorized_users": ["YOUR_TELEGRAM_USER_ID"]}' &gt; data/authorized-users.json
+
+<span class="c"># 5. Start</span>
+docker compose --env-file .env.deploy up -d</code></pre>
+
+      <div class="callout warn"><strong>Important path difference.</strong> In <code>.env</code>, set <code>AUTHORIZED_USERS_CONFIG_PATH=/data/authorized-users.json</code> (the <em>container</em> path, not the default local path from <code>.env.example</code>) and place the whitelist file in <code>./data/</code> on the host, which is bind-mounted to <code>/data</code> in the container.</div>
+
+      <h2>Container behavior</h2>
+      <ul>
+        <li><strong>User &amp; permissions</strong> — the container runs as the <code>UID:GID</code> from <code>.env.deploy</code>, so the bind-mounted database is owned by your host user.</li>
+        <li><strong>Persistence</strong> — the SQLite database is stored at <code>./data/expenses.db</code> on the host. Back up that file to back up your expenses.</li>
+        <li><strong>Authorization</strong> — read from <code>AUTHORIZED_USERS_CONFIG_PATH</code> at runtime. See the <a href="configuration.html">configuration reference</a> for the file format and failure behaviors.</li>
+        <li><strong>Audit logging</strong> — optionally set <code>UNAUTHORIZED_LOG_PATH=/data/unauthorized.log</code> in <code>.env</code> for a dedicated audit log in the persisted volume.</li>
+        <li><strong>Lifecycle</strong> — <code>restart: unless-stopped</code> keeps the bot running across reboots.</li>
+      </ul>
+
+      <h2>Day-2 operations</h2>
+      <pre><code>docker compose --env-file .env.deploy logs -f   <span class="c"># follow logs</span>
+docker compose --env-file .env.deploy down      <span class="c"># stop the bot</span>
+docker compose --env-file .env.deploy up -d     <span class="c"># start again</span></code></pre>
+      <p>To update, pull the latest code (or tag) and re-run <code>up -d</code>. Your data in <code>./data/</code> is untouched.</p>
+
+      <h2>Docker image</h2>
+      <p>Releases are tag-triggered: pushing a <code>vX.Y.Z</code> tag builds and pushes the image to <code>ghcr.io/Cirius1792/spencer-bot</code> (tags: full version, minor, and <code>latest</code>) and creates a GitHub Release. You can either run from a source checkout (steps above) or pull the published image directly — see the <a href="https://github.com/Cirius1792/expese-report-bot/releases">releases page</a> for available versions.</p>
+    </article>
+  </div>
+</section>
+
+<footer>
+  <div class="container footer-inner">
+    <div>(ex)SpenserBot · <a href="https://github.com/Cirius1792/expese-report-bot">GitHub</a> · <a href="index.html">Documentation</a></div>
+    <div>MIT License · by Ciro Lucio Tecce</div>
+  </div>
+</footer>
+
+</body>
+</html>
