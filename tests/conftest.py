@@ -13,7 +13,32 @@ collaborators (domain entities, repository, correction store) are real.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
+
+import pytest
+
+from tests._schema import apply_snapshot
+
+if TYPE_CHECKING:
+    from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
+
+
+@pytest.fixture
+def snapshot_db(tmp_path: Path) -> str:
+    """A fresh database carrying the generated schema snapshot (no Docker)."""
+    db_path = tmp_path / "expenses.db"
+    apply_snapshot(db_path)
+    return str(db_path)
+
+
+@pytest.fixture
+def repo(snapshot_db: str) -> SqliteExpenseRepository:
+    """A repository backed by the schema snapshot (hermetic; no Docker)."""
+    from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
+
+    return SqliteExpenseRepository(snapshot_db)
 
 
 class _MockChainOfThought:

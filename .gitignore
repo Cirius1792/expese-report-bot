@@ -30,6 +30,13 @@ Thumbs.db
 # Generated BDD output (behave `format = pretty`)
 pretty.output
 
+# Local SQLite databases (expense-extract defaults to --db expenses.db)
+*.db
+# SQLite sidecar files (WAL / rollback journal)
+*.db-wal
+*.db-shm
+*.db-journal
+
 # Docker runtime
 .env.deploy
 data/

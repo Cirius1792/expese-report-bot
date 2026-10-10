@@ -23,6 +23,24 @@ cp .env.deploy.example .env.deploy
 docker compose --env-file .env.deploy up -d
 ```
 
+### Database Schema Migrations
+
+The container owns the schema via **Liquibase** (ADR 0013). On every start,
+`docker-entrypoint.sh` runs `liquibase update` against `$EXPENSE_DB_PATH`
+**before** launching the bot:
+
+- On a fresh deploy the changelog creates the `expenses` table plus the
+  `databasechangelog` / `databasechangeloglock` tracking tables.
+- On an existing database the changelog is a no-op — already-applied
+  changesets are skipped — so restarts are safe and never touch your data.
+- If the migration fails, the entrypoint exits non-zero and **the bot does not
+  start**. Check the container logs (`docker compose logs`).
+- The SQLite JDBC driver ships inside the Liquibase `4.33.0` image, so no
+  driver files or `lib/` directory are needed.
+
+To change the schema, append a **new** changeset to
+`db/changelog/db.changelog.xml`; never edit an applied changeset.
+
 ### Container Behavior
 
 - **User/Permissions**: The container runs as the `UID:GID` specified in `.env.deploy` so the bind-mounted database is owned by the host user.

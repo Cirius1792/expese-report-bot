@@ -32,5 +32,11 @@ handoff.md
 skills-lock.json
 pretty.output
 
+# Local SQLite databases (keep them out of the build context)
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
 # CI
 .github/

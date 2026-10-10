@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from pathlib import Path
 
 from telegram.ext import Application
 
@@ -25,6 +26,7 @@ from expense_report.adapters.inbound.telegram_bot import (
     setup_command_menu,
 )
 from expense_report.adapters.out.dspy_extraction import DspyExtractionAdapter
+from expense_report.adapters.out.liquibase_migration import ensure_database_migrated
 from expense_report.adapters.out.source_preparation import SourcePreparationAdapter
 from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository
 from expense_report.application.correction_state import CorrectionStore
@@ -69,7 +71,8 @@ def main() -> None:
     effective_log_level = _configure_logging()
 
     token = os.environ["TELEGRAM_BOT_TOKEN"]
-    db_path = os.environ.get("EXPENSE_DB_PATH", "expenses.db")
+    # Absolute so the migration and the repository open the same file (ADR 0013).
+    db_path = str(Path(os.environ.get("EXPENSE_DB_PATH", "expenses.db")).resolve())
 
     logger = logging.getLogger(__name__)
     logger.info(
@@ -90,6 +93,12 @@ def main() -> None:
         len(authorized_user_ids),
         unauthorized_audit.path,
     )
+
+    # ADR 0013: no entry point opens the database before running the migration.
+    # The container entrypoint is the container's single migrator and exports
+    # EXPENSE_SCHEMA_MIGRATED=1, so skip the redundant second Liquibase JVM.
+    if os.environ.get("EXPENSE_SCHEMA_MIGRATED") != "1":
+        ensure_database_migrated(db_path)
 
     extraction = DspyExtractionAdapter()
     repository = SqliteExpenseRepository(db_path=db_path)

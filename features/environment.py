@@ -11,6 +11,8 @@ Follows sociable unit test principles:
 from __future__ import annotations
 
 import os
+import sqlite3
+import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
@@ -150,24 +152,49 @@ mock_ext.ContextTypes = mock_context_types
 _sys.modules["telegram"] = mock_telegram
 _sys.modules["telegram.ext"] = mock_ext
 
+# Schema provisioning seam (ADR 0014): the migration helper is resolved by
+# absolute path, never through PATH. The BDD CLI scenarios also exercise the
+# *production* entry point, which resolves `liquibase` from PATH as it does in
+# the image — so the harness provides it here rather than relying on the
+# developer's shell.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+os.environ["PATH"] = os.pathsep.join([str(_REPO_ROOT / "scripts"), os.environ.get("PATH", "")])
+
 # -- Now safe to import project modules --  # noqa: E402
 from expense_report.adapters.out.sqlite_repository import SqliteExpenseRepository  # noqa: E402
 from expense_report.application.correction_state import CorrectionStore  # noqa: E402
 from expense_report.application.expense_queries import ExpenseQueryUseCase  # noqa: E402
+from tests._schema import migrate_with_liquibase  # noqa: E402
 
 
 def before_all(context: "behave.runner.Context") -> None:
-    """Set up environment variables for the entire test run."""
+    """Set up environment variables and the migrated database for the test run."""
     context.config.setup_logging()
     os.environ.setdefault("LLM_BASE_URL", "http://mock-llm:8080")
     os.environ.setdefault("LLM_API_KEY", "mock-api-key")
     os.environ.setdefault("LLM_MODEL", "mock-model")
 
+    # One Liquibase-migrated database for the whole BDD run (schema ownership:
+    # ADR 0013). Scenarios get fresh *data* via before_scenario cleanup.
+    db_dir = TemporaryDirectory()
+    context.database_tempdir = db_dir
+    context.database_path = str(Path(db_dir.name) / "expenses.db")
+    migrate_with_liquibase(Path(context.database_path))
+
 
 def before_scenario(context: "behave.runner.Context", scenario: "behave.model.Scenario") -> None:
     """Set up fresh test fixtures before each scenario."""
-    # In-memory SQLite repository (fresh per scenario)
-    context.repository = SqliteExpenseRepository(":memory:")
+    # Fresh data per scenario; the schema is owned by Liquibase (see before_all).
+    # The shared file database keeps its AUTOINCREMENT counter across scenarios,
+    # so reset sqlite_sequence too — otherwise expense IDs keep climbing and the
+    # "Expense #1" assertions fail.
+    with sqlite3.connect(context.database_path) as connection:
+        connection.execute("DELETE FROM expenses")
+        connection.execute("DELETE FROM sqlite_sequence WHERE name = 'expenses'")
+        connection.commit()
+    context.repository = SqliteExpenseRepository(context.database_path)
 
     # Real correction store (domain object, not mocked)
     context.correction_store = CorrectionStore()
@@ -201,6 +228,14 @@ def after_scenario(context: "behave.runner.Context", scenario: "behave.model.Sce
     if hasattr(context, "repository"):
         context.repository._conn.close()
 
-    # Clean up authorization temp directory
+    # Clean up temporary directories (the shared BDD database is cleaned up in after_all)
     if hasattr(context, "authorization_tempdir"):
         context.authorization_tempdir.cleanup()
+
+
+def after_all(context: "behave.runner.Context") -> None:
+    """Tear down the shared BDD database after the whole run."""
+    if hasattr(context, "repository"):
+        context.repository._conn.close()
+    if hasattr(context, "database_tempdir"):
+        context.database_tempdir.cleanup()
